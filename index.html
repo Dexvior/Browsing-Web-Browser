@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <title>Browsing</title>
+  <link rel="stylesheet" href="theme.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <div class="tabbar">
+      <div class="tabs" id="tabs"><span class="indicator" id="indicator"></span></div>
+      <button class="icon-btn" id="newTab" title="New tab (Ctrl+T)" aria-label="New tab">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+
+    <div class="toolbar">
+      <button class="icon-btn" id="back" title="Back (Alt+Left)" aria-label="Back">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <button class="icon-btn" id="forward" title="Forward (Alt+Right)" aria-label="Forward">
+        <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+      <button class="icon-btn" id="reload" title="Reload (Ctrl+R)" aria-label="Reload">
+        <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
+      </button>
+
+      <div class="omni">
+        <div class="urlwrap">
+          <input id="url" type="text" spellcheck="false" autocomplete="off" placeholder="Search with DuckDuckGo or enter an address" />
+        </div>
+      </div>
+
+      <button class="icon-btn" id="theme" title="Switch theme" aria-label="Switch theme">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>
+      </button>
+      <button class="icon-btn" id="menuBtn" title="Menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="progress" id="progress"></div>
+    </div>
+
+    <div id="stage"></div>
+
+    <div class="menu" id="menu" role="menu">
+      <button class="menu-item" id="mNewTab"><span>New tab</span><span class="hint">Ctrl+T</span></button>
+      <div class="menu-item static">
+        <span>Theme</span>
+        <div class="seg">
+          <button data-mode="dark">Black</button>
+          <button data-mode="light">White</button>
+        </div>
+      </div>
+      <button class="menu-item" id="mClear"><span>Clear browsing data</span></button>
+      <div class="menu-sep"></div>
+      <div class="menu-item static"><span>Close tab</span><span class="hint">Ctrl+W</span></div>
+      <div class="menu-item static"><span>Reload</span><span class="hint">Ctrl+R</span></div>
+      <div class="menu-item static"><span>Address bar</span><span class="hint">Ctrl+L</span></div>
+      <div class="menu-item static"><span>Next tab</span><span class="hint">Ctrl+Tab</span></div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
