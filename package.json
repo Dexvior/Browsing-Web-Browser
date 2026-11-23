@@ -1,0 +1,32 @@
+{
+  "name": "browsing",
+  "productName": "Browsing",
+  "version": "1.0.0",
+  "description": "A minimal monochrome web browser",
+  "main": "main.js",
+  "author": "Browsing",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "@fontsource-variable/urbanist": "^5.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.browsing.app",
+    "productName": "Browsing",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "src/**/*"],
+    "win": { "target": "nsis" },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}
