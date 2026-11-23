@@ -5,10 +5,14 @@
   <title>Browsing</title>
   <link rel="stylesheet" href="theme.css" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="dock.css" />
 </head>
 <body>
-  <div id="app">
+  <div id="app" data-dock="top">
     <div class="tabbar">
+      <button class="icon-btn grip" id="grip" title="Drag to move the tab bar" aria-label="Move tab bar">
+        <svg viewBox="0 0 24 24" style="stroke-width:2.6"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/></svg>
+      </button>
       <div class="tabs" id="tabs"><span class="indicator" id="indicator"></span></div>
       <button class="icon-btn" id="newTab" title="New tab (Ctrl+T)" aria-label="New tab">
         <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
@@ -25,13 +29,11 @@
       <button class="icon-btn" id="reload" title="Reload (Ctrl+R)" aria-label="Reload">
         <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
       </button>
-
       <div class="omni">
         <div class="urlwrap">
           <input id="url" type="text" spellcheck="false" autocomplete="off" placeholder="Search with DuckDuckGo or enter an address" />
         </div>
       </div>
-
       <button class="icon-btn" id="theme" title="Switch theme" aria-label="Switch theme">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>
       </button>
@@ -45,12 +47,11 @@
 
     <div class="menu" id="menu" role="menu">
       <button class="menu-item" id="mNewTab"><span>New tab</span><span class="hint">Ctrl+T</span></button>
-      <div class="menu-item static">
-        <span>Theme</span>
-        <div class="seg">
-          <button data-mode="dark">Black</button>
-          <button data-mode="light">White</button>
-        </div>
+      <div class="menu-item static row"><span>Theme</span>
+        <div class="seg" id="themeSeg"><button data-value="dark">Black</button><button data-value="light">White</button></div>
+      </div>
+      <div class="menu-item static row"><span>Tab bar</span>
+        <div class="seg" id="dockSeg"><button data-value="top">Top</button><button data-value="bottom">Bottom</button><button data-value="left">Left</button><button data-value="right">Right</button></div>
       </div>
       <button class="menu-item" id="mClear"><span>Clear browsing data</span></button>
       <div class="menu-sep"></div>
@@ -58,6 +59,13 @@
       <div class="menu-item static"><span>Reload</span><span class="hint">Ctrl+R</span></div>
       <div class="menu-item static"><span>Address bar</span><span class="hint">Ctrl+L</span></div>
       <div class="menu-item static"><span>Next tab</span><span class="hint">Ctrl+Tab</span></div>
+    </div>
+
+    <div id="dockOverlay">
+      <div class="zone" data-z="top">Top</div>
+      <div class="zone" data-z="bottom">Bottom</div>
+      <div class="zone" data-z="left">Left</div>
+      <div class="zone" data-z="right">Right</div>
     </div>
   </div>
   <script src="app.js"></script>

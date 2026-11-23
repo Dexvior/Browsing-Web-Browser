@@ -72,7 +72,7 @@ ipcMain.on('set-theme', (_, mode) => {
 
 ipcMain.handle('clear-data', async () => {
   const ses = session.fromPartition(PARTITION);
-  await ses.clearStorageData();
+  await ses.clearStorageData({ storages: ['cookies', 'indexdb', 'websql', 'cachestorage', 'serviceworkers', 'filesystem'] });
   await ses.clearCache();
   return true;
 });

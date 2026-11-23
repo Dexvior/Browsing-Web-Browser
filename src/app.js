@@ -94,8 +94,16 @@ function renderTitle(t) { t.el.querySelector('.tab-title').textContent = t.title
 function moveIndicator() {
   const t = active();
   if (!t) return;
-  indicator.style.width = t.el.offsetWidth + 'px';
-  indicator.style.transform = 'translateX(' + t.el.offsetLeft + 'px)';
+  const d = document.getElementById('app').dataset.dock;
+  if (d === 'left' || d === 'right') {
+    indicator.style.width = '2px';
+    indicator.style.height = t.el.offsetHeight + 'px';
+    indicator.style.transform = 'translateY(' + t.el.offsetTop + 'px)';
+  } else {
+    indicator.style.height = '2px';
+    indicator.style.width = t.el.offsetWidth + 'px';
+    indicator.style.transform = 'translateX(' + t.el.offsetLeft + 'px)';
+  }
 }
 new ResizeObserver(moveIndicator).observe(tabsEl);
 
@@ -150,9 +158,11 @@ function applyTheme(mode) {
   document.documentElement.dataset.theme = mode;
   try { localStorage.setItem('theme', mode); } catch {}
   window.browsing.setTheme(mode);
+  markSeg($('themeSeg'), mode);
 }
 $('theme').onclick = () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
-document.querySelectorAll('.seg button').forEach((b) => (b.onclick = () => applyTheme(b.dataset.mode)));
+$('themeSeg').querySelectorAll('button').forEach((b) => (b.onclick = () => applyTheme(b.dataset.value)));
+$('dockSeg').querySelectorAll('button').forEach((b) => (b.onclick = () => applyDock(b.dataset.value)));
 
 /* ---------- Menu ---------- */
 const toggleMenu = (open) => menu.classList.toggle('open', open);
@@ -180,8 +190,67 @@ window.browsing.onShortcut((name) => {
 });
 window.browsing.onOpenUrl((url) => newTab(url, false));
 
+/* ---------- Tab bar docking ---------- */
+const appEl = $('app'), overlay = $('dockOverlay'), grip = $('grip');
+const DOCKS = ['top', 'bottom', 'left', 'right'];
+
+function markSeg(seg, value) {
+  const btns = [...seg.querySelectorAll('button')];
+  seg.style.setProperty('--n', btns.length);
+  btns.forEach((b, i) => {
+    const on = b.dataset.value === value;
+    b.classList.toggle('on', on);
+    if (on) seg.style.setProperty('--i', i);
+  });
+}
+
+function applyDock(d) {
+  if (!DOCKS.includes(d)) d = 'top';
+  appEl.dataset.dock = d;
+  try { localStorage.setItem('dock', d); } catch {}
+  markSeg($('dockSeg'), d);
+  moveIndicator();
+  setTimeout(moveIndicator, 60);
+}
+
+let dragging = false, startX = 0, startY = 0, zone = null;
+function zoneAt(x, y) {
+  const w = innerWidth, h = innerHeight;
+  const d = { left: x / w, right: (w - x) / w, top: y / h, bottom: (h - y) / h };
+  return Object.keys(d).reduce((a, b) => (d[a] <= d[b] ? a : b));
+}
+function onDrag(e) {
+  if (!dragging) return;
+  zone = zoneAt(e.clientX, e.clientY);
+  overlay.querySelectorAll('.zone').forEach((z) => z.classList.toggle('hot', z.dataset.z === zone));
+}
+function endDrag(apply, e) {
+  if (!dragging) return;
+  dragging = false;
+  overlay.classList.remove('on');
+  document.body.classList.remove('dragging');
+  const moved = e && Math.hypot(e.clientX - startX, e.clientY - startY) > 8;
+  if (apply && moved && zone) applyDock(zone);
+  zone = null;
+}
+grip.addEventListener('pointerdown', (e) => {
+  dragging = true; startX = e.clientX; startY = e.clientY;
+  grip.setPointerCapture(e.pointerId);
+  overlay.classList.add('on');
+  document.body.classList.add('dragging');
+  toggleMenu(false);
+  onDrag(e);
+});
+grip.addEventListener('pointermove', onDrag);
+grip.addEventListener('pointerup', (e) => endDrag(true, e));
+grip.addEventListener('pointercancel', () => endDrag(false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') endDrag(false); });
+
 /* ---------- Start ---------- */
 let saved = 'dark';
 try { saved = localStorage.getItem('theme') || 'dark'; } catch {}
 applyTheme(saved);
+let savedDock = 'top';
+try { savedDock = localStorage.getItem('dock') || 'top'; } catch {}
+applyDock(savedDock);
 newTab();

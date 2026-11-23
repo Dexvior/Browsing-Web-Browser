@@ -95,11 +95,6 @@ webview.fade { animation: page-in 0.3s var(--ease); }
 .hint { color: var(--muted); font-size: 12px; }
 .menu-sep { height: 1px; margin: 6px 4px; background: var(--border); }
 
-.seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; width: 130px; height: 26px; border: 1px solid var(--border); border-radius: 13px; }
-.seg::before { content: ''; position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 11px; background: var(--fg); transition: transform 0.3s var(--ease); }
-:root[data-theme='light'] .seg::before { transform: translateX(100%); }
-.seg button { position: relative; z-index: 1; border: 0; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: color 0.3s var(--ease); }
-:root[data-theme='dark'] .seg [data-mode='dark'], :root[data-theme='light'] .seg [data-mode='light'] { color: var(--bg); }
 
 @keyframes tab-in { from { opacity: 0; transform: translateY(6px); } }
 @keyframes tab-out { to { opacity: 0; transform: translateY(6px); } }

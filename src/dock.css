@@ -1,0 +1,57 @@
+/* Layout: the tab bar can dock to any edge */
+#app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 40px 48px minmax(0, 1fr); grid-template-areas: 'tabs' 'tool' 'stage'; }
+.tabbar { grid-area: tabs; } .toolbar { grid-area: tool; } #stage { grid-area: stage; min-width: 0; min-height: 0; }
+#app[data-dock='bottom'] { grid-template-rows: 48px minmax(0, 1fr) 40px; grid-template-areas: 'tool' 'stage' 'tabs'; }
+#app[data-dock='left'] { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: 48px minmax(0, 1fr); grid-template-areas: 'tool tool' 'tabs stage'; }
+#app[data-dock='right'] { grid-template-columns: minmax(0, 1fr) 220px; grid-template-rows: 48px minmax(0, 1fr); grid-template-areas: 'tool tool' 'stage tabs'; }
+
+/* Horizontal tab bar (top / bottom) */
+.tabbar > .icon-btn { margin: 0 0 0 4px; align-self: center; }
+.tabbar > .grip { margin: 0 4px 0 0; cursor: grab; touch-action: none; -webkit-app-region: no-drag; }
+.grip:active { cursor: grabbing; }
+#app[data-dock='top'] .tabs { align-self: flex-end; }
+#app[data-dock='bottom'] .tabbar { align-items: center; padding: 0 8px; border-top: 1px solid var(--border); border-bottom: 0; -webkit-app-region: no-drag; }
+#app[data-dock='bottom'] .tabs { align-self: flex-start; }
+
+/* Vertical tab bar (left / right) */
+#app[data-dock='left'] .tabbar, #app[data-dock='right'] .tabbar {
+  flex-direction: column; align-items: stretch; gap: 4px; height: auto; padding: 8px; overflow-y: auto; -webkit-app-region: no-drag;
+}
+#app[data-dock='left'] .tabbar { border-right: 1px solid var(--border); border-bottom: 0; }
+#app[data-dock='right'] .tabbar { border-left: 1px solid var(--border); border-bottom: 0; }
+#app[data-dock='left'] .tabbar > .icon-btn, #app[data-dock='right'] .tabbar > .icon-btn { align-self: flex-start; margin: 0; }
+#app[data-dock='left'] .tabs, #app[data-dock='right'] .tabs { flex: none; flex-direction: column; height: auto; align-self: stretch; }
+#app[data-dock='left'] .tab, #app[data-dock='right'] .tab { flex: none; width: 100%; height: 36px; min-width: 0; border-radius: 8px; }
+
+/* Sliding indicator follows the active tab on every edge */
+.indicator { background: var(--fg); transition: transform 0.35s var(--ease), width 0.35s var(--ease), height 0.35s var(--ease); }
+#app[data-dock='top'] .indicator { left: 0; bottom: 0; top: auto; right: auto; }
+#app[data-dock='bottom'] .indicator { left: 0; top: 0; bottom: auto; right: auto; }
+#app[data-dock='left'] .indicator { left: 0; top: 0; bottom: auto; right: auto; }
+#app[data-dock='right'] .indicator { right: 0; top: 0; bottom: auto; left: auto; }
+
+/* Toolbar doubles as the title bar when tabs are not on top */
+#app:not([data-dock='top']) .toolbar { padding-right: 140px; -webkit-app-region: drag; }
+.toolbar .icon-btn, .urlwrap { -webkit-app-region: no-drag; }
+#app[data-dock='top'] .menu { top: 92px; }
+#app:not([data-dock='top']) .menu { top: 52px; }
+.menu { width: 300px; }
+.menu-item.static.row { color: var(--fg); }
+
+/* Segmented controls (theme and tab bar position) */
+.seg { --n: 2; --i: 0; position: relative; display: grid; grid-template-columns: repeat(var(--n), 1fr); width: 130px; height: 26px; border: 1px solid var(--border); border-radius: 13px; }
+.seg::before { content: ''; position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / var(--n)); border-radius: 11px; background: var(--fg); transform: translateX(calc(var(--i) * 100%)); transition: transform 0.3s var(--ease); }
+.seg button { position: relative; z-index: 1; border: 0; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: color 0.3s var(--ease); }
+.seg button.on { color: var(--bg); }
+#dockSeg { width: 190px; }
+
+/* Drag-to-dock overlay */
+#dockOverlay { position: absolute; inset: 0; z-index: 100; display: none; pointer-events: none; background: color-mix(in srgb, var(--bg) 60%, transparent); }
+#dockOverlay.on { display: block; animation: page-in 0.15s var(--ease); }
+.zone { position: absolute; display: grid; place-items: center; border: 1px dashed var(--fg); opacity: 0.35; transition: opacity 0.15s, background 0.15s; }
+.zone.hot { opacity: 1; background: var(--press); }
+.zone[data-z='top'] { top: 0; left: 0; right: 0; height: 64px; }
+.zone[data-z='bottom'] { bottom: 0; left: 0; right: 0; height: 64px; }
+.zone[data-z='left'] { top: 0; bottom: 0; left: 0; width: 110px; }
+.zone[data-z='right'] { top: 0; bottom: 0; right: 0; width: 110px; }
+body.dragging, body.dragging * { cursor: grabbing !important; }
