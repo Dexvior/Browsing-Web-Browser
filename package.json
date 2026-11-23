@@ -22,11 +22,13 @@
     "productName": "Browsing",
     "directories": { "output": "dist" },
     "files": ["main.js", "preload.js", "guest-preload.js", "src/**/*", "build/icon.png"],
-    "win": { "target": "nsis", "icon": "build/icon.png" },
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     }
   }
 }
