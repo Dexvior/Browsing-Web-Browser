@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>New Tab</title>
+  <link rel="stylesheet" href="theme.css" />
+  <style>
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); }
+    body { display: grid; place-items: center; animation: in 0.5s var(--ease) both; }
+    main { max-width: 480px; padding: 0 24px; text-align: center; }
+    h1 { margin: 0; font-weight: 300; font-size: 64px; letter-spacing: -0.03em; }
+    h1.small { font-size: 32px; font-weight: 600; letter-spacing: -0.01em; }
+    p { margin: 14px 0 0; color: var(--muted); font-size: 16px; line-height: 1.5; }
+    p.host { color: var(--fg); font-weight: 600; }
+    button { margin-top: 28px; height: 38px; padding: 0 24px; border: 1px solid var(--fg); border-radius: 19px; background: transparent; cursor: pointer; font-weight: 600; transition: background 0.2s, color 0.2s, transform 0.15s; }
+    button:hover { background: var(--fg); color: var(--bg); }
+    button:active { transform: scale(0.96); }
+    @keyframes in { from { opacity: 0; } }
+  </style>
+</head>
+<body>
+  <main id="root"></main>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const root = document.getElementById('root');
+    const add = (tag, text, cls) => { const el = document.createElement(tag); el.textContent = text; if (cls) el.className = cls; root.appendChild(el); return el; };
+
+    if (q.get('type') === 'error') {
+      const target = q.get('u') || '';
+      const code = q.get('d') || '';
+      const friendly = {
+        ERR_INTERNET_DISCONNECTED: 'You appear to be offline. Check your connection and try again.',
+        ERR_NAME_NOT_RESOLVED: 'The address could not be found. Check the spelling and try again.',
+        ERR_CONNECTION_REFUSED: 'The server refused the connection.',
+        ERR_CONNECTION_TIMED_OUT: 'The server took too long to respond.',
+        ERR_CERT_AUTHORITY_INVALID: 'The site security certificate is not trusted.',
+      };
+      let host = target;
+      try { host = new URL(target).hostname || target; } catch {}
+      document.title = 'Page unavailable';
+      add('h1', 'This page is unavailable', 'small');
+      add('p', host, 'host');
+      add('p', friendly[code] || 'The page could not be loaded.');
+      add('p', code);
+      const btn = add('button', 'Try again');
+      btn.onclick = () => { if (/^(https?|file):/i.test(target)) location.replace(target); };
+    } else {
+      add('h1', 'Browsing');
+      add('p', 'Type in the address bar to search with DuckDuckGo.');
+    }
+  </script>
+</body>
+</html>
