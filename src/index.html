@@ -6,6 +6,7 @@
   <link rel="stylesheet" href="theme.css" />
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="dock.css" />
+  <link rel="stylesheet" href="settings.css" />
 </head>
 <body>
   <div id="app" data-dock="top">
@@ -37,6 +38,9 @@
       <button class="icon-btn" id="theme" title="Switch theme" aria-label="Switch theme">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>
       </button>
+      <button class="icon-btn" id="settingsBtn" title="Settings (Ctrl+,)" aria-label="Settings">
+        <svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg>
+      </button>
       <button class="icon-btn" id="menuBtn" title="Menu" aria-label="Menu">
         <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
@@ -47,18 +51,43 @@
 
     <div class="menu" id="menu" role="menu">
       <button class="menu-item" id="mNewTab"><span>New tab</span><span class="hint">Ctrl+T</span></button>
-      <div class="menu-item static row"><span>Theme</span>
-        <div class="seg" id="themeSeg"><button data-value="dark">Black</button><button data-value="light">White</button></div>
-      </div>
-      <div class="menu-item static row"><span>Tab bar</span>
-        <div class="seg" id="dockSeg"><button data-value="top">Top</button><button data-value="bottom">Bottom</button><button data-value="left">Left</button><button data-value="right">Right</button></div>
-      </div>
+      <button class="menu-item" id="mSettings"><span>Settings</span><span class="hint">Ctrl+,</span></button>
       <button class="menu-item" id="mClear"><span>Clear browsing data</span></button>
       <div class="menu-sep"></div>
       <div class="menu-item static"><span>Close tab</span><span class="hint">Ctrl+W</span></div>
       <div class="menu-item static"><span>Reload</span><span class="hint">Ctrl+R</span></div>
       <div class="menu-item static"><span>Address bar</span><span class="hint">Ctrl+L</span></div>
       <div class="menu-item static"><span>Next tab</span><span class="hint">Ctrl+Tab</span></div>
+    </div>
+
+    <div class="settings" id="settings" role="dialog" aria-label="Settings" aria-hidden="true">
+      <div class="sheet">
+        <div class="sh-head"><h2>Settings</h2><button class="icon-btn" id="sClose" aria-label="Close settings"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        <div class="sh-body">
+          <h3>Appearance</h3>
+          <div class="srow"><span>Theme</span>
+            <div class="seg" id="themeSeg" data-pref="theme" style="width:210px"><button data-value="dark">Black</button><button data-value="light">White</button><button data-value="custom">Custom</button></div></div>
+          <div class="cbox" id="customBox">
+            <div class="srow"><span>Color</span><div class="cpick"><div class="swatches" id="swatches"></div><input type="color" id="c1" aria-label="Custom color"></div></div>
+            <div class="srow"><span>Style</span>
+              <div class="seg" id="styleSeg" data-pref="style" style="width:170px"><button data-value="solid">Solid</button><button data-value="gradient">Gradient</button></div></div>
+            <div class="srow" id="row2"><span>Fade to</span><input type="color" id="c2" aria-label="Gradient end color"></div>
+            <div class="preview" id="preview"></div>
+          </div>
+          <h3>Layout</h3>
+          <div class="srow"><span>Tab bar position</span>
+            <div class="seg" id="dockSeg"><button data-value="top">Top</button><button data-value="bottom">Bottom</button><button data-value="left">Left</button><button data-value="right">Right</button></div></div>
+          <div class="srow"><span>Tab size</span>
+            <div class="seg" id="densSeg" data-pref="density" style="width:200px"><button data-value="compact">Compact</button><button data-value="normal">Comfortable</button></div></div>
+          <h3>Browsing</h3>
+          <div class="srow"><span>Search engine</span>
+            <div class="seg" id="engSeg" data-pref="engine" style="width:300px"><button data-value="duckduckgo">DuckDuckGo</button><button data-value="google">Google</button><button data-value="bing">Bing</button><button data-value="brave">Brave</button></div></div>
+          <div class="srow"><span>Reduce motion</span><button class="sw" id="swMotion" role="switch" aria-checked="false" aria-label="Reduce motion"><i></i></button></div>
+          <h3>Data</h3>
+          <div class="srow"><span>Cookies and cache</span><button class="pbtn" id="sClear">Clear</button></div>
+          <div class="srow"><span>Settings</span><button class="pbtn" id="sReset">Reset to defaults</button></div>
+        </div>
+      </div>
     </div>
 
     <div id="dockOverlay">

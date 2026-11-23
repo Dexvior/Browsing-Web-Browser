@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 190" role="img" aria-label="Browsing">
+  <g transform="translate(-14 -14) scale(.38)" fill="#000000">
+    <circle cx="256" cy="232" r="132" fill="none" stroke="#000000" stroke-width="22"/>
+    <path d="M256 100a132 132 0 0 1 0 264z"/>
+    <rect x="196" y="398" width="120" height="20" rx="10"/>
+  </g>
+  <!-- Wordmark is live text in Urbanist Light. Convert text to outlines before print or sharing. -->
+  <text x="190" y="122" font-family="Urbanist, 'Segoe UI', sans-serif" font-size="112" font-weight="300" letter-spacing="-5" fill="#000000">Browsing</text>
+</svg>

@@ -17,6 +17,7 @@ function createWindow() {
     minWidth: 640,
     minHeight: 420,
     title: 'Browsing',
+    icon: path.join(__dirname, 'build', 'icon.png'),
     backgroundColor: '#000000',
     titleBarStyle: 'hidden',
     titleBarOverlay: OVERLAY.dark,
@@ -26,6 +27,12 @@ function createWindow() {
       nodeIntegration: false,
       webviewTag: true,
     },
+  });
+  // Every web page gets a locked-down preload that fills in standard Chrome objects.
+  win.webContents.on('will-attach-webview', (_e, prefs) => {
+    prefs.preload = path.join(__dirname, 'guest-preload.js');
+    prefs.nodeIntegration = false;
+    prefs.contextIsolation = true;
   });
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
 }
@@ -42,7 +49,7 @@ app.on('web-contents-created', (_, contents) => {
     let name = null;
 
     if (ctrl && !input.shift && !input.alt) {
-      name = { t: 'new-tab', w: 'close-tab', r: 'reload', l: 'focus-url' }[key] || null;
+      name = { t: 'new-tab', w: 'close-tab', r: 'reload', l: 'focus-url', ',': 'settings' }[key] || null;
     }
     if (ctrl && key === 'tab') name = input.shift ? 'prev-tab' : 'next-tab';
     if (key === 'f5') name = 'reload';
@@ -70,6 +77,14 @@ ipcMain.on('set-theme', (_, mode) => {
   win.setBackgroundColor(OVERLAY[mode].color);
 });
 
+ipcMain.on('set-chrome', (_, o) => {
+  const ok = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+  if (!o || !ok(o.color) || !ok(o.symbol)) return;
+  nativeTheme.themeSource = o.dark ? 'dark' : 'light';
+  try { win.setTitleBarOverlay({ color: o.color, symbolColor: o.symbol, height: 40 }); } catch {}
+  win.setBackgroundColor(o.color);
+});
+
 ipcMain.handle('clear-data', async () => {
   const ses = session.fromPartition(PARTITION);
   await ses.clearStorageData({ storages: ['cookies', 'indexdb', 'websql', 'cachestorage', 'serviceworkers', 'filesystem'] });
@@ -80,7 +95,19 @@ ipcMain.handle('clear-data', async () => {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   const ses = session.fromPartition(PARTITION);
-  ses.setUserAgent(ses.getUserAgent().replace(/\s(Electron|browsing)\/\S+/gi, ''));
+  // Present a normal Chromium identity: same UA Electron would send, minus the Electron/app tokens.
+  const ua = ses.getUserAgent().replace(/\s(Electron|browsing)\/\S+/gi, '');
+  ses.setUserAgent(ua);
+  app.userAgentFallback = ua;
+  // Keep the Client Hints header consistent with the UA (no "Electron" brand).
+  const major = (ua.match(/Chrome\/(\d+)/) || [])[1] || '130';
+  ses.webRequest.onBeforeSendHeaders((details, cb) => {
+    const h = details.requestHeaders;
+    for (const k of Object.keys(h)) {
+      if (k.toLowerCase() === 'sec-ch-ua') h[k] = '"Chromium";v="' + major + '", "Not?A_Brand";v="99", "Browsing";v="1"';
+    }
+    cb({ requestHeaders: h });
+  });
   createWindow();
 });
 
