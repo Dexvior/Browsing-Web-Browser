@@ -7,7 +7,7 @@ const CLOSE_ICON = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></s
 
 const $ = (id) => document.getElementById(id);
 const tabsEl = $('tabs'), indicator = $('indicator'), stage = $('stage'), urlInput = $('url');
-const backBtn = $('back'), fwdBtn = $('forward'), reloadBtn = $('reload'), progress = $('progress'), menu = $('menu');
+const lock = $('lock'), backBtn = $('back'), fwdBtn = $('forward'), reloadBtn = $('reload'), progress = $('progress'), menu = $('menu');
 
 let tabs = [], activeId = null, seq = 0;
 const active = () => tabs.find((t) => t.id === activeId);
@@ -23,45 +23,78 @@ function resolveInput(raw) {
 }
 
 /* ---------- Tabs ---------- */
-function newTab(url = newtabUrl(), focusBar = url.startsWith(NEWTAB_BASE)) {
+const isVertical = () => { const d = document.getElementById('app').dataset.dock; return d === 'left' || d === 'right'; };
+let dragId = null;
+
+function newTab(url = newtabUrl(), focusBar = url.startsWith(NEWTAB_BASE), opts = {}) {
   const id = ++seq;
   const el = document.createElement('div');
   el.className = 'tab';
-  el.innerHTML = '<span class="tab-title">New Tab</span><button class="tab-close" aria-label="Close tab">' + CLOSE_ICON + '</button>';
+  el.draggable = true;
+  el.innerHTML = '<span class="tab-ico"><i class="spin"></i><img alt=""></span><span class="tab-title">New Tab</span><button class="tab-close" aria-label="Close tab">' + CLOSE_ICON + '</button>';
+  const img = el.querySelector('img');
+  img.onerror = () => el.classList.remove('has-ico');
   const wv = document.createElement('webview');
   wv.setAttribute('partition', 'persist:browsing');
   wv.setAttribute('allowpopups', '');
   wv.setAttribute('src', url);
 
-  const t = { id, el, wv, title: 'New Tab', url, failed: null, loading: false };
-  tabs.push(t);
-  tabsEl.insertBefore(el, indicator);
+  const t = { id, el, wv, title: 'New Tab', url, failed: null, loading: false, zoom: 0 };
+  let at = tabs.length;
+  if (opts.afterActive) { const i = tabs.findIndex((x) => x.id === activeId); if (i >= 0) at = i + 1; }
+  tabs.splice(at, 0, t);
+  tabsEl.insertBefore(el, tabs[at + 1] ? tabs[at + 1].el : indicator);
   stage.appendChild(wv);
 
   el.addEventListener('click', () => activate(id));
   el.addEventListener('auxclick', (e) => { if (e.button === 1) closeTab(id); });
   el.querySelector('.tab-close').addEventListener('click', (e) => { e.stopPropagation(); closeTab(id); });
+  el.addEventListener('dragstart', (e) => { dragId = id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(id)); el.classList.add('dragging'); });
+  el.addEventListener('dragend', () => { dragId = null; el.classList.remove('dragging'); });
+  el.addEventListener('dragover', (e) => {
+    if (dragId == null || dragId === id) return;
+    e.preventDefault();
+    const r = el.getBoundingClientRect();
+    moveTab(dragId, id, isVertical() ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2);
+  });
 
-  wv.addEventListener('did-start-loading', () => { t.loading = true; sync(); });
-  wv.addEventListener('did-stop-loading', () => { t.loading = false; sync(); });
-  wv.addEventListener('page-title-updated', (e) => { t.title = e.title; renderTitle(t); });
+  wv.addEventListener('did-start-loading', () => { t.loading = true; el.classList.add('loading'); sync(); });
+  wv.addEventListener('did-stop-loading', () => { t.loading = false; el.classList.remove('loading'); sync(); });
+  wv.addEventListener('did-start-navigation', (e) => { if (e.isMainFrame && !e.isInPage) el.classList.remove('has-ico'); });
+  wv.addEventListener('dom-ready', () => { if (t.zoom) { try { wv.setZoomLevel(t.zoom); } catch {} } });
+  wv.addEventListener('page-title-updated', (e) => { t.title = e.title; renderTitle(t); retitle(t.url, e.title); });
+  wv.addEventListener('page-favicon-updated', (e) => { const f = e.favicons && e.favicons[0]; if (f) { img.src = f; el.classList.add('has-ico'); } });
   wv.addEventListener('did-navigate', (e) => {
     t.url = e.url;
-    if (!e.url.startsWith(INTERNAL)) t.failed = null;
+    if (!e.url.startsWith(INTERNAL)) { t.failed = null; visit(e.url); }
     wv.classList.remove('fade'); void wv.offsetWidth; wv.classList.add('fade');
-    sync();
+    sync(); saveSession();
   });
-  wv.addEventListener('did-navigate-in-page', (e) => { if (e.isMainFrame) { t.url = e.url; sync(); } });
+  wv.addEventListener('did-navigate-in-page', (e) => { if (e.isMainFrame) { t.url = e.url; sync(); saveSession(); } });
   wv.addEventListener('did-fail-load', (e) => {
     if (!e.isMainFrame || e.errorCode === -3 || e.validatedURL.startsWith(INTERNAL)) return;
     t.failed = e.validatedURL;
     const p = new URLSearchParams({ type: 'error', u: e.validatedURL, d: e.errorDescription });
     wv.loadURL(INTERNAL + '?' + p.toString()).catch(() => {});
   });
+  wv.addEventListener('found-in-page', (e) => {
+    if (t.id === activeId && e.result.finalUpdate) findCnt.textContent = e.result.matches ? e.result.activeMatchOrdinal + ' / ' + e.result.matches : 'No results';
+  });
 
   activate(id);
-  if (focusBar) { urlInput.focus(); }
+  if (focusBar) urlInput.focus();
+  saveSession();
   return t;
+}
+
+function moveTab(from, to, after) {
+  const a = tabs.findIndex((t) => t.id === from);
+  if (a < 0 || !tabs.some((t) => t.id === to)) return;
+  const [t] = tabs.splice(a, 1);
+  const i = tabs.findIndex((x) => x.id === to) + (after ? 1 : 0);
+  tabs.splice(i, 0, t);
+  tabsEl.insertBefore(t.el, tabs[i + 1] ? tabs[i + 1].el : indicator);
+  moveIndicator(); saveSession();
 }
 
 function activate(id) {
@@ -72,19 +105,25 @@ function activate(id) {
   });
   sync();
   moveIndicator();
+  saveSession();
   const t = active();
   if (t && document.activeElement !== urlInput) { try { t.wv.focus(); } catch {} }
 }
 
+const closed = [];
 function closeTab(id) {
   const i = tabs.findIndex((t) => t.id === id);
   if (i < 0) return;
+  const t0 = tabs[i];
+  if (t0.failed || !t0.url.startsWith(INTERNAL)) { closed.push(t0.failed || t0.url); if (closed.length > 15) closed.shift(); }
   if (tabs.length === 1) { window.close(); return; }
   const [t] = tabs.splice(i, 1);
   if (id === activeId) activate(tabs[Math.min(i, tabs.length - 1)].id);
   t.el.classList.add('closing');
-  setTimeout(() => { t.el.remove(); t.wv.remove(); moveIndicator(); }, 160);
+  setTimeout(() => { t.el.remove(); t.wv.remove(); moveIndicator(); }, 230);
+  saveSession();
 }
+function reopenTab() { const u = closed.pop(); if (u) newTab(u, false); }
 
 function cycle(dir) {
   const i = tabs.findIndex((t) => t.id === activeId);
@@ -120,7 +159,9 @@ function sync() {
   if (!t) return;
   try { backBtn.disabled = !t.wv.canGoBack(); fwdBtn.disabled = !t.wv.canGoForward(); }
   catch { backBtn.disabled = true; fwdBtn.disabled = true; }
-  if (document.activeElement !== urlInput) urlInput.value = displayUrl(t);
+  const u = displayUrl(t);
+  if (document.activeElement !== urlInput) urlInput.value = u;
+  lock.dataset.s = !u ? '' : u.startsWith('https:') ? 'secure' : u.startsWith('http:') ? 'insecure' : '';
   progress.classList.toggle('on', t.loading);
   reloadBtn.classList.toggle('loading', t.loading);
   renderTitle(t);
@@ -149,14 +190,26 @@ reloadBtn.onclick = reload;
 $('newTab').onclick = () => newTab();
 
 urlInput.addEventListener('focus', () => urlInput.select());
+urlInput.addEventListener('input', buildSugg);
 urlInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { navigate(urlInput.value); urlInput.blur(); }
-  if (e.key === 'Escape') { urlInput.value = displayUrl(active()); urlInput.blur(); }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!sugg.classList.contains('on')) return;
+    e.preventDefault();
+    si += e.key === 'ArrowDown' ? 1 : -1;
+    if (si >= sg.length) si = -1;
+    if (si < -1) si = sg.length - 1;
+    renderSugg();
+  } else if (e.key === 'Enter') {
+    if (si >= 0 && sg[si]) pick(sg[si]);
+    else { hideSugg(); navigate(urlInput.value); urlInput.blur(); }
+  } else if (e.key === 'Escape') {
+    hideSugg(); urlInput.value = displayUrl(active()); urlInput.blur();
+  }
 });
-urlInput.addEventListener('blur', sync);
+urlInput.addEventListener('blur', () => { hideSugg(); sync(); });
 
 /* ---------- Theme ---------- */
-function applyTheme(mode) { prefs.theme = mode; savePrefs(); applyAll(); }
+function applyTheme(mode) { fx(() => { prefs.theme = mode; savePrefs(); applyAll(); }); }
 $('theme').onclick = () => applyTheme(prefs.theme === 'dark' ? 'light' : 'dark');
 $('themeSeg').querySelectorAll('button').forEach((b) => (b.onclick = () => applyTheme(b.dataset.value)));
 $('dockSeg').querySelectorAll('button').forEach((b) => (b.onclick = () => applyDock(b.dataset.value)));
@@ -183,10 +236,17 @@ window.browsing.onShortcut((name) => {
     back: goBack,
     forward: goForward,
     settings: () => openSettings(true),
+    'reopen-tab': reopenTab,
+    find: () => openFind(true),
+    'zoom-in': () => zoom(1),
+    'zoom-out': () => zoom(-1),
+    'zoom-reset': () => zoom(0),
   };
+  const m = /^tab-(\d)$/.exec(name);
+  if (m) { const i = m[1] === '9' ? tabs.length - 1 : +m[1] - 1; if (tabs[i]) activate(tabs[i].id); return; }
   if (actions[name]) actions[name]();
 });
-window.browsing.onOpenUrl((url) => newTab(url, false));
+window.browsing.onOpenUrl((url) => newTab(url, false, { afterActive: true }));
 
 /* ---------- Tab bar docking ---------- */
 const appEl = $('app'), overlay = $('dockOverlay'), grip = $('grip');
@@ -252,7 +312,7 @@ const ENGINES = {
   brave: ['Brave', 'https://search.brave.com/search?q='],
 };
 const SWATCHES = ['#0b3d91', '#5b21b6', '#0f766e', '#15803d', '#b91c1c', '#b45309'];
-const DEFAULTS = { theme: 'dark', color: '#14213d', color2: '#6d28d9', style: 'solid', engine: 'duckduckgo', density: 'normal', motion: 'on' };
+const DEFAULTS = { theme: 'dark', color: '#14213d', color2: '#6d28d9', style: 'solid', engine: 'duckduckgo', density: 'normal', motion: 'on', startup: 'new' };
 let prefs = { ...DEFAULTS };
 const isHex = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 
@@ -304,7 +364,7 @@ function applyPrefs() {
   urlInput.placeholder = 'Search with ' + name + ' or enter an address';
   r.dataset.density = prefs.density; r.dataset.motion = prefs.motion;
   markSeg($('themeSeg'), prefs.theme); markSeg($('styleSeg'), prefs.style);
-  markSeg($('engSeg'), prefs.engine); markSeg($('densSeg'), prefs.density);
+  markSeg($('engSeg'), prefs.engine); markSeg($('densSeg'), prefs.density); markSeg($('startSeg'), prefs.startup);
   $('customBox').hidden = prefs.theme !== 'custom';
   $('row2').hidden = prefs.style !== 'gradient';
   $('c1').value = prefs.color; $('c2').value = prefs.color2;
@@ -314,7 +374,7 @@ function applyPrefs() {
   moveIndicator();
 }
 function applyAll() { applyAppearance(); applyPrefs(); }
-const change = (k, v) => { prefs[k] = v; savePrefs(); applyAll(); };
+const change = (k, v) => { const go = () => { prefs[k] = v; savePrefs(); applyAll(); }; if (k === 'theme') fx(go); else go(); };
 
 $('swatches').innerHTML = SWATCHES.map((c) => '<button data-c="' + c + '" style="background:' + c + '" aria-label="Color ' + c + '"></button>').join('');
 $('swatches').onclick = (e) => { const b = e.target.closest('button'); if (b) change('color', b.dataset.c); };
@@ -339,10 +399,155 @@ $('sClose').onclick = () => openSettings(false);
 sEl.addEventListener('click', (e) => { if (e.target === sEl) openSettings(false); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') openSettings(false); });
 
+/* ---------- Theme reveal (circle grows from where you clicked) ---------- */
+let lastPt = { x: innerWidth - 80, y: 24 };
+document.addEventListener('pointerdown', (e) => { lastPt = { x: e.clientX, y: e.clientY }; }, true);
+function fx(fn) {
+  if (!document.startViewTransition || prefs.motion === 'off') return fn();
+  const { x, y } = lastPt;
+  const tr = document.startViewTransition(fn);
+  tr.ready.then(() => {
+    const r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    document.documentElement.animate(
+      { clipPath: ['circle(0px at ' + x + 'px ' + y + 'px)', 'circle(' + r + 'px at ' + x + 'px ' + y + 'px)'] },
+      { duration: 650, easing: 'cubic-bezier(.4,0,.2,1)', pseudoElement: '::view-transition-new(root)' });
+  }).catch(() => {});
+}
+
+/* ---------- History and address bar suggestions ---------- */
+let hist = [];
+try { hist = JSON.parse(localStorage.getItem('history') || '[]'); } catch {}
+let histTimer = 0;
+const saveHist = () => { clearTimeout(histTimer); histTimer = setTimeout(() => { try { localStorage.setItem('history', JSON.stringify(hist)); } catch {} }, 800); };
+function visit(u) {
+  if (!/^https?:/i.test(u)) return;
+  const h = hist.find((x) => x.u === u);
+  if (h) { h.c++; h.d = Date.now(); hist.splice(hist.indexOf(h), 1); hist.unshift(h); }
+  else { hist.unshift({ u, t: '', c: 1, d: Date.now() }); if (hist.length > 500) hist.pop(); }
+  saveHist();
+}
+function retitle(u, title) { const h = hist.find((x) => x.u === u); if (h && title && title !== u) { h.t = title; saveHist(); } }
+
+const sugg = $('sugg');
+let sg = [], si = -1;
+function buildSugg() {
+  const raw = urlInput.value.trim(), q = raw.toLowerCase(), t = active();
+  if (!q || (t && urlInput.value === displayUrl(t))) return hideSugg();
+  const hits = hist.map((h) => {
+    const u = h.u.replace(/^https?:\/\/(www\.)?/, '').toLowerCase(), ti = h.t.toLowerCase();
+    const s = u.startsWith(q) ? 4 : ti.startsWith(q) ? 3 : u.includes(q) ? 2 : ti.includes(q) ? 1 : 0;
+    return { h, s: s ? s * 100 + Math.min(h.c, 20) : 0 };
+  }).filter((x) => x.s).sort((a, b) => b.s - a.s).slice(0, 5);
+  sg = [{ kind: 'q', u: raw }, ...hits.map((x) => ({ kind: 'h', u: x.h.u, t: x.h.t }))];
+  si = -1;
+  renderSugg();
+}
+function renderSugg() {
+  sugg.textContent = '';
+  sg.forEach((s, i) => {
+    const row = document.createElement('div'), b = document.createElement('b'), sp = document.createElement('span');
+    row.className = 'sg' + (i === si ? ' sel' : '');
+    if (s.kind === 'q') { b.textContent = s.u; sp.textContent = 'Search with ' + engineName; }
+    else { b.textContent = s.t || s.u.replace(/^https?:\/\//, ''); sp.textContent = s.u.replace(/^https?:\/\//, ''); }
+    row.append(b, sp);
+    row.addEventListener('mousedown', (e) => { e.preventDefault(); pick(s); });
+    sugg.appendChild(row);
+  });
+  sugg.classList.add('on');
+}
+function hideSugg() { sugg.classList.remove('on'); si = -1; }
+function pick(s) { hideSugg(); urlInput.blur(); navigate(s.u); }
+
+/* ---------- Find in page ---------- */
+const findEl = $('find'), findIn = $('findIn'), findCnt = $('findCnt');
+function openFind(on) {
+  findEl.classList.toggle('on', on);
+  if (on) { toggleMenu(false); findIn.focus(); findIn.select(); return; }
+  const t = active();
+  try { t.wv.stopFindInPage('clearSelection'); t.wv.focus(); } catch {}
+  findCnt.textContent = '';
+}
+function doFind(fwd, next) {
+  const t = active(), q = findIn.value;
+  try {
+    if (q) t.wv.findInPage(q, { forward: fwd, findNext: next });
+    else { t.wv.stopFindInPage('clearSelection'); findCnt.textContent = ''; }
+  } catch {}
+}
+findIn.addEventListener('input', () => doFind(true, false));
+findIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') doFind(!e.shiftKey, true); if (e.key === 'Escape') openFind(false); });
+$('fPrev').onclick = () => doFind(false, true);
+$('fNext').onclick = () => doFind(true, true);
+$('fClose').onclick = () => openFind(false);
+$('mFind').onclick = () => openFind(true);
+
+/* ---------- Zoom ---------- */
+const zoomP = $('zoomP');
+let zTimer = 0;
+function zoom(dir) {
+  const t = active();
+  if (!t) return;
+  t.zoom = dir === 0 ? 0 : Math.max(-3, Math.min(5, t.zoom + dir * 0.5));
+  try { t.wv.setZoomLevel(t.zoom); } catch {}
+  zoomP.textContent = Math.round(Math.pow(1.2, t.zoom) * 100) + '%';
+  zoomP.classList.add('on');
+  clearTimeout(zTimer);
+  zTimer = setTimeout(() => zoomP.classList.remove('on'), 1200);
+}
+
+/* ---------- Toasts, downloads, updates ---------- */
+const toasts = $('toasts');
+function toast(msg, action, onAction, ttl) {
+  const el = document.createElement('div'), s = document.createElement('span');
+  el.className = 'toast'; s.textContent = msg; el.appendChild(s);
+  const close = () => { el.classList.add('out'); setTimeout(() => el.remove(), 260); };
+  if (action) { const b = document.createElement('button'); b.textContent = action; b.onclick = () => { onAction(); close(); }; el.appendChild(b); }
+  toasts.appendChild(el);
+  if (ttl !== 0) setTimeout(close, ttl || 6000);
+}
+let version = '', updMsg = '';
+const verText = $('verText');
+const showVer = () => { verText.textContent = 'Version ' + version + (updMsg ? ' - ' + updMsg : ''); };
+window.browsing.getVersion().then((v) => { version = v; showVer(); });
+window.browsing.onUpdate((u) => {
+  if (u.state === 'downloading') updMsg = 'Downloading ' + u.version + '...';
+  if (u.state === 'progress') updMsg = 'Downloading ' + u.percent + '%';
+  if (u.state === 'error') updMsg = 'Update check failed';
+  if (u.state === 'ready') { updMsg = u.version + ' is ready, restart to apply'; toast('Browsing ' + u.version + ' is ready', 'Restart', () => window.browsing.installUpdate(), 0); }
+  showVer();
+});
+$('sUpd').onclick = async () => {
+  updMsg = 'Checking...'; showVer();
+  const r = await window.browsing.checkUpdates();
+  updMsg = { available: 'Update found, downloading...', latest: 'You are up to date', dev: 'Updates work in the installed app', error: 'Could not check for updates' }[r] || '';
+  showVer();
+};
+window.browsing.onDownload((d) => toast('Downloaded ' + d.name, 'Show', () => window.browsing.showFile(d.path)));
+window.browsing.onSearchText((q) => newTab(SEARCH + encodeURIComponent(q), false, { afterActive: true }));
+
+/* ---------- Session restore ---------- */
+let sesTimer = 0;
+function saveSession() {
+  clearTimeout(sesTimer);
+  sesTimer = setTimeout(() => {
+    const urls = tabs.map((t) => t.failed || (t.url.startsWith(INTERNAL) ? '' : t.url));
+    try { localStorage.setItem('session', JSON.stringify({ urls, active: tabs.findIndex((t) => t.id === activeId) })); } catch {}
+  }, 400);
+}
+function restoreSession() {
+  let s = null;
+  if (prefs.startup === 'restore') { try { s = JSON.parse(localStorage.getItem('session') || 'null'); } catch {} }
+  if (s && Array.isArray(s.urls) && s.urls.length) {
+    s.urls.slice(0, 30).forEach((u) => newTab(typeof u === 'string' && u ? u : newtabUrl(), false));
+    const a = tabs[s.active];
+    if (a) activate(a.id);
+  } else newTab();
+}
+
 /* ---------- Start ---------- */
 loadPrefs();
 applyAll();
 let savedDock = 'top';
 try { savedDock = localStorage.getItem('dock') || 'top'; } catch {}
 applyDock(savedDock);
-newTab();
+restoreSession();

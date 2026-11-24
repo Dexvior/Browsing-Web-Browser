@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="dock.css" />
   <link rel="stylesheet" href="settings.css" />
+  <link rel="stylesheet" href="polish.css" />
 </head>
 <body>
   <div id="app" data-dock="top">
@@ -31,8 +32,9 @@
         <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
       </button>
       <div class="omni">
-        <div class="urlwrap">
+        <div class="urlwrap"><span class="lock" id="lock" data-s=""><svg class="l-s" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><svg class="l-i" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.7"/></svg></span>
           <input id="url" type="text" spellcheck="false" autocomplete="off" placeholder="Search with DuckDuckGo or enter an address" />
+          <div class="sugg" id="sugg" role="listbox"></div>
         </div>
       </div>
       <button class="icon-btn" id="theme" title="Switch theme" aria-label="Switch theme">
@@ -51,6 +53,7 @@
 
     <div class="menu" id="menu" role="menu">
       <button class="menu-item" id="mNewTab"><span>New tab</span><span class="hint">Ctrl+T</span></button>
+      <button class="menu-item" id="mFind"><span>Find in page</span><span class="hint">Ctrl+F</span></button>
       <button class="menu-item" id="mSettings"><span>Settings</span><span class="hint">Ctrl+,</span></button>
       <button class="menu-item" id="mClear"><span>Clear browsing data</span></button>
       <div class="menu-sep"></div>
@@ -58,6 +61,8 @@
       <div class="menu-item static"><span>Reload</span><span class="hint">Ctrl+R</span></div>
       <div class="menu-item static"><span>Address bar</span><span class="hint">Ctrl+L</span></div>
       <div class="menu-item static"><span>Next tab</span><span class="hint">Ctrl+Tab</span></div>
+      <div class="menu-item static"><span>Reopen closed tab</span><span class="hint">Ctrl+Shift+T</span></div>
+      <div class="menu-item static"><span>Zoom</span><span class="hint">Ctrl +  /  -  /  0</span></div>
     </div>
 
     <div class="settings" id="settings" role="dialog" aria-label="Settings" aria-hidden="true">
@@ -82,13 +87,27 @@
           <h3>Browsing</h3>
           <div class="srow"><span>Search engine</span>
             <div class="seg" id="engSeg" data-pref="engine" style="width:300px"><button data-value="duckduckgo">DuckDuckGo</button><button data-value="google">Google</button><button data-value="bing">Bing</button><button data-value="brave">Brave</button></div></div>
+          <div class="srow"><span>On startup</span>
+            <div class="seg" id="startSeg" data-pref="startup" style="width:230px"><button data-value="new">New tab</button><button data-value="restore">Restore tabs</button></div></div>
           <div class="srow"><span>Reduce motion</span><button class="sw" id="swMotion" role="switch" aria-checked="false" aria-label="Reduce motion"><i></i></button></div>
           <h3>Data</h3>
           <div class="srow"><span>Cookies and cache</span><button class="pbtn" id="sClear">Clear</button></div>
           <div class="srow"><span>Settings</span><button class="pbtn" id="sReset">Reset to defaults</button></div>
+          <h3>About</h3>
+          <div class="srow"><span id="verText">Browsing</span><button class="pbtn" id="sUpd">Check for updates</button></div>
         </div>
       </div>
     </div>
+
+    <div class="find" id="find" role="search">
+      <input id="findIn" type="text" spellcheck="false" placeholder="Find in page" />
+      <span class="cnt" id="findCnt"></span>
+      <button class="icon-btn" id="fPrev" aria-label="Previous match"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+      <button class="icon-btn" id="fNext" aria-label="Next match"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      <button class="icon-btn" id="fClose" aria-label="Close find"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="zoomp" id="zoomP">100%</div>
+    <div class="toasts" id="toasts"></div>
 
     <div id="dockOverlay">
       <div class="zone" data-z="top">Top</div>
