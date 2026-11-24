@@ -37,6 +37,9 @@
           <div class="sugg" id="sugg" role="listbox"></div>
         </div>
       </div>
+      <button class="icon-btn dl-btn" id="dlBtn" hidden title="Downloads" aria-label="Downloads">
+        <svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 19h14"/></svg>
+      </button>
       <button class="icon-btn" id="theme" title="Switch theme" aria-label="Switch theme">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>
       </button>
@@ -91,6 +94,7 @@
             <div class="seg" id="startSeg" data-pref="startup" style="width:230px"><button data-value="new">New tab</button><button data-value="restore">Restore tabs</button></div></div>
           <div class="srow"><span>Reduce motion</span><button class="sw" id="swMotion" role="switch" aria-checked="false" aria-label="Reduce motion"><i></i></button></div>
           <h3>Data</h3>
+          <div class="srow"><span>Site permissions</span><button class="pbtn" id="sPerm">Reset</button></div>
           <div class="srow"><span>Cookies and cache</span><button class="pbtn" id="sClear">Clear</button></div>
           <div class="srow"><span>Settings</span><button class="pbtn" id="sReset">Reset to defaults</button></div>
           <h3>About</h3>
@@ -99,6 +103,17 @@
       </div>
     </div>
 
+    <div class="dlp" id="dlp" role="dialog" aria-label="Downloads">
+      <div class="dlp-head"><span>Downloads</span><button class="pbtn sm" id="dlClear">Clear list</button></div>
+      <div class="dlp-list" id="dlList"></div>
+      <button class="dlp-foot" id="dlFolder">Open downloads folder</button>
+    </div>
+    <div class="perm" id="perm" role="dialog" aria-label="Permission request">
+      <button class="icon-btn perm-x" id="pX" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <div class="p-t" id="pTitle"></div>
+      <ul class="p-l" id="pList"></ul>
+      <div class="p-b"><button class="pbtn primary" id="pAllow">Allow</button><button class="pbtn" id="pOnce">This time</button><button class="pbtn" id="pBlock">Block</button></div>
+    </div>
     <div class="find" id="find" role="search">
       <input id="findIn" type="text" spellcheck="false" placeholder="Find in page" />
       <span class="cnt" id="findCnt"></span>

@@ -45,6 +45,9 @@ function newTab(url = newtabUrl(), focusBar = url.startsWith(NEWTAB_BASE), opts 
   tabs.splice(at, 0, t);
   tabsEl.insertBefore(el, tabs[at + 1] ? tabs[at + 1].el : indicator);
   stage.appendChild(wv);
+  el.classList.add('entering');
+  el.addEventListener('animationend', (e) => { if (e.target === el) el.classList.remove('entering'); });
+  moveIndicator();
 
   el.addEventListener('click', () => activate(id));
   el.addEventListener('auxclick', (e) => { if (e.button === 1) closeTab(id); });
@@ -58,9 +61,9 @@ function newTab(url = newtabUrl(), focusBar = url.startsWith(NEWTAB_BASE), opts 
     moveTab(dragId, id, isVertical() ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2);
   });
 
-  wv.addEventListener('did-start-loading', () => { t.loading = true; el.classList.add('loading'); sync(); });
+  wv.addEventListener('did-start-loading', () => { t.loading = true; sync(); });
   wv.addEventListener('did-stop-loading', () => { t.loading = false; el.classList.remove('loading'); sync(); });
-  wv.addEventListener('did-start-navigation', (e) => { if (e.isMainFrame && !e.isInPage) el.classList.remove('has-ico'); });
+  wv.addEventListener('did-start-navigation', (e) => { if (e.isMainFrame && !e.isInPage) { el.classList.remove('has-ico'); el.classList.toggle('loading', !e.url.startsWith(INTERNAL)); } });
   wv.addEventListener('dom-ready', () => { if (t.zoom) { try { wv.setZoomLevel(t.zoom); } catch {} } });
   wv.addEventListener('page-title-updated', (e) => { t.title = e.title; renderTitle(t); retitle(t.url, e.title); });
   wv.addEventListener('page-favicon-updated', (e) => { const f = e.favicons && e.favicons[0]; if (f) { img.src = f; el.classList.add('has-ico'); } });
@@ -119,7 +122,9 @@ function closeTab(id) {
   if (tabs.length === 1) { window.close(); return; }
   const [t] = tabs.splice(i, 1);
   if (id === activeId) activate(tabs[Math.min(i, tabs.length - 1)].id);
+  t.el.style.setProperty('--tw', t.el.querySelector('.tab-title').offsetWidth + 'px');
   t.el.classList.add('closing');
+  moveIndicator();
   setTimeout(() => { t.el.remove(); t.wv.remove(); moveIndicator(); }, 230);
   saveSession();
 }
@@ -132,21 +137,29 @@ function cycle(dir) {
 
 function renderTitle(t) { t.el.querySelector('.tab-title').textContent = t.title || 'New Tab'; }
 
-function moveIndicator() {
+let indP = 0, indS = 0, indRaf = 0, indLast = 0, indSnap = true, indKeep = 0;
+function moveIndicator(snap) {
+  if (snap === true) indSnap = true;
+  indKeep = performance.now() + 400;            // keep following while tabs animate
+  if (!indRaf) { indLast = performance.now(); indRaf = requestAnimationFrame(stepIndicator); }
+}
+function stepIndicator(now) {
+  indRaf = 0;
   const t = active();
   if (!t) return;
-  const d = document.getElementById('app').dataset.dock;
-  if (d === 'left' || d === 'right') {
-    indicator.style.width = '2px';
-    indicator.style.height = t.el.offsetHeight + 'px';
-    indicator.style.transform = 'translateY(' + t.el.offsetTop + 'px)';
-  } else {
-    indicator.style.height = '2px';
-    indicator.style.width = t.el.offsetWidth + 'px';
-    indicator.style.transform = 'translateX(' + t.el.offsetLeft + 'px)';
-  }
+  const v = document.getElementById('app').dataset.dock;
+  const vert = v === 'left' || v === 'right';
+  const tp = vert ? t.el.offsetTop : t.el.offsetLeft, ts = vert ? t.el.offsetHeight : t.el.offsetWidth;
+  const k = indSnap ? 1 : 1 - Math.exp(-Math.min(64, now - indLast) / 55);
+  indLast = now; indSnap = false;
+  indP += (tp - indP) * k; indS += (ts - indS) * k;
+  const done = Math.abs(tp - indP) < 0.4 && Math.abs(ts - indS) < 0.4;
+  if (done && now > indKeep) { indP = tp; indS = ts; }
+  if (vert) { indicator.style.width = '2px'; indicator.style.height = indS + 'px'; indicator.style.transform = 'translateY(' + indP + 'px)'; }
+  else { indicator.style.height = '2px'; indicator.style.width = indS + 'px'; indicator.style.transform = 'translateX(' + indP + 'px)'; }
+  if (!done || now <= indKeep) indRaf = requestAnimationFrame(stepIndicator);
 }
-new ResizeObserver(moveIndicator).observe(tabsEl);
+new ResizeObserver(() => moveIndicator()).observe(tabsEl);
 
 /* ---------- Navigation ---------- */
 function displayUrl(t) {
@@ -162,8 +175,9 @@ function sync() {
   const u = displayUrl(t);
   if (document.activeElement !== urlInput) urlInput.value = u;
   lock.dataset.s = !u ? '' : u.startsWith('https:') ? 'secure' : u.startsWith('http:') ? 'insecure' : '';
-  progress.classList.toggle('on', t.loading);
-  reloadBtn.classList.toggle('loading', t.loading);
+  const busy = t.loading && !t.url.startsWith(INTERNAL);
+  progress.classList.toggle('on', busy);
+  reloadBtn.classList.toggle('loading', busy);
   renderTitle(t);
 }
 
@@ -267,8 +281,8 @@ function applyDock(d) {
   appEl.dataset.dock = d;
   try { localStorage.setItem('dock', d); } catch {}
   markSeg($('dockSeg'), d);
-  moveIndicator();
-  setTimeout(moveIndicator, 60);
+  moveIndicator(true);
+  setTimeout(() => moveIndicator(true), 60);
 }
 
 let dragging = false, startX = 0, startY = 0, zone = null;
@@ -522,7 +536,6 @@ $('sUpd').onclick = async () => {
   updMsg = { available: 'Update found, downloading...', latest: 'You are up to date', dev: 'Updates work in the installed app', error: 'Could not check for updates' }[r] || '';
   showVer();
 };
-window.browsing.onDownload((d) => toast('Downloaded ' + d.name, 'Show', () => window.browsing.showFile(d.path)));
 window.browsing.onSearchText((q) => newTab(SEARCH + encodeURIComponent(q), false, { afterActive: true }));
 
 /* ---------- Session restore ---------- */
@@ -543,6 +556,127 @@ function restoreSession() {
     if (a) activate(a.id);
   } else newTab();
 }
+
+/* ---------- Downloads drawer ---------- */
+const dlBtn = $('dlBtn'), dlp = $('dlp'), dlList = $('dlList');
+let dls = [], dlAuto = 0, dlHover = false;
+const fmtB = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : b >= 1e3 ? Math.round(b / 1e3) + ' KB' : b + ' B');
+const pctOf = (d) => (d.total > 0 ? Math.min(100, Math.round((d.received / d.total) * 100)) : -1);
+function dlStatus(d) {
+  if (d.state === 'completed') return fmtB(d.total || d.received) + ' - Done';
+  if (d.state === 'cancelled') return 'Canceled';
+  if (d.state === 'interrupted') return 'Failed';
+  const p = pctOf(d);
+  const base = p >= 0 ? fmtB(d.received) + ' of ' + fmtB(d.total) + ' - ' + p + '%' : fmtB(d.received) + ' downloaded';
+  return d.paused ? 'Paused - ' + base : base;
+}
+const DL_ICON = {
+  cancel: '<path d="M6 6l12 12M18 6L6 18"/>', remove: '<path d="M6 6l12 12M18 6L6 18"/>',
+  pause: '<path d="M9 5v14M15 5v14"/>', resume: '<path d="M8 5l11 7-11 7z"/>',
+  open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  show: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+};
+function dlAct(act, id, label) {
+  const b = document.createElement('button');
+  b.className = 'icon-btn'; b.dataset.act = act; b.dataset.id = id; b.title = label; b.setAttribute('aria-label', label);
+  b.innerHTML = '<svg viewBox="0 0 24 24">' + DL_ICON[act] + '</svg>';
+  return b;
+}
+function renderDl() {
+  dlBtn.hidden = dls.length === 0;
+  const live = dls.filter((d) => d.state === 'progressing'), known = live.filter((d) => d.total > 0);
+  dlBtn.classList.toggle('active', live.length > 0);
+  dlBtn.classList.toggle('indet', live.length > 0 && known.length === 0);
+  dlBtn.style.setProperty('--p', known.length ? Math.round(known.reduce((a, d) => a + pctOf(d), 0) / known.length) : 0);
+  dlList.textContent = '';
+  if (!dls.length) { const e = document.createElement('div'); e.className = 'dl-empty'; e.textContent = 'No downloads yet'; dlList.appendChild(e); return; }
+  dls.forEach((d) => {
+    const row = document.createElement('div'), ico = document.createElement('div'), meta = document.createElement('div');
+    row.className = 'dl-row'; ico.className = 'dl-ico'; meta.className = 'dl-meta';
+    ico.textContent = (d.name.includes('.') ? d.name.split('.').pop() : 'file').slice(0, 4).toUpperCase();
+    const nm = document.createElement('b'), st = document.createElement('span');
+    nm.textContent = d.name; st.textContent = dlStatus(d); meta.append(nm, st);
+    if (d.state === 'progressing') {
+      const bar = document.createElement('div'), i = document.createElement('i');
+      bar.className = 'dl-bar' + (pctOf(d) < 0 ? ' indet' : ''); i.style.width = Math.max(pctOf(d), 0) + '%'; bar.appendChild(i); meta.appendChild(bar);
+    }
+    const acts = document.createElement('div'); acts.className = 'dl-acts';
+    if (d.state === 'progressing') acts.append(dlAct(d.paused ? 'resume' : 'pause', d.id, d.paused ? 'Resume' : 'Pause'), dlAct('cancel', d.id, 'Cancel download'));
+    else if (d.state === 'completed') acts.append(dlAct('open', d.id, 'Open file'), dlAct('show', d.id, 'Show in folder'), dlAct('remove', d.id, 'Remove from list'));
+    else acts.append(dlAct('remove', d.id, 'Remove from list'));
+    row.append(ico, meta, acts); dlList.appendChild(row);
+  });
+}
+function openDl(on, auto) {
+  clearTimeout(dlAuto);
+  if (on) toggleMenu(false);
+  dlp.classList.toggle('on', on);
+  if (on && auto) dlAuto = setTimeout(() => { if (!dlHover) openDl(false); }, 6000);
+}
+dlList.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const id = +b.dataset.id, act = b.dataset.act;
+  if (act === 'remove') { dls = dls.filter((d) => d.id !== id); renderDl(); } else window.browsing.dlAct(act, id);
+});
+$('dlFolder').onclick = () => window.browsing.dlAct('folder', 0);
+$('dlClear').onclick = () => { dls = dls.filter((d) => d.state === 'progressing'); renderDl(); if (!dls.length) openDl(false); };
+dlBtn.onclick = (e) => { e.stopPropagation(); openDl(!dlp.classList.contains('on')); };
+dlp.addEventListener('click', (e) => e.stopPropagation());
+dlp.addEventListener('mouseenter', () => { dlHover = true; clearTimeout(dlAuto); });
+dlp.addEventListener('mouseleave', () => { dlHover = false; });
+document.addEventListener('click', () => openDl(false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') openDl(false); });
+window.browsing.onDl((d) => {
+  let x = dls.find((i) => i.id === d.id);
+  if (!x) { x = { id: d.id }; dls.unshift(x); }
+  x.name = d.name; x.total = d.total; x.received = d.received; x.paused = d.paused;
+  x.state = d.type === 'done' ? d.state : d.state === 'interrupted' ? 'interrupted' : 'progressing';
+  renderDl();
+  if (d.type === 'start') { dlBtn.classList.remove('pop'); void dlBtn.offsetWidth; dlBtn.classList.add('pop'); openDl(true, true); }
+  if (d.type === 'done' && dlp.classList.contains('on') && !dlHover) { clearTimeout(dlAuto); dlAuto = setTimeout(() => { if (!dlHover) openDl(false); }, 5000); }
+});
+
+/* ---------- Permission prompts ---------- */
+const permEl = $('perm'), pTitle = $('pTitle'), pList = $('pList');
+const PERM_TXT = {
+  camera: ['Use your camera', 'M4 8a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zM15 11l5-3v8l-5-3'],
+  microphone: ['Use your microphone', 'M12 4a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V7a3 3 0 0 1 3-3zM6 11a6 6 0 0 0 12 0M12 17v3'],
+  geolocation: ['Know your location', 'M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10zM12 8.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z'],
+  notifications: ['Show notifications', 'M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0'],
+  'clipboard-read': ['See text and images you copy', 'M9 4h6v3H9zM7 6H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-1'],
+  midi: ['Use your MIDI devices', 'M5 8h14M5 12h14M5 16h14M9 8v8M15 8v8'],
+  midiSysex: ['Fully control your MIDI devices', 'M5 8h14M5 12h14M5 16h14M9 8v8M15 8v8'],
+};
+let permQ = [], permCur = null;
+function nextPerm() {
+  if (permCur || !permQ.length) return;
+  permCur = permQ.shift();
+  pTitle.textContent = permCur.host + ' wants to';
+  pList.textContent = '';
+  permCur.kinds.forEach((k) => {
+    const [txt, d] = PERM_TXT[k] || [k, 'M12 12h.01'];
+    const li = document.createElement('li'), sp = document.createElement('span');
+    li.innerHTML = '<svg viewBox="0 0 24 24"><path d="' + d + '"/></svg>'; sp.textContent = txt; li.appendChild(sp); pList.appendChild(li);
+  });
+  permEl.classList.add('on');
+}
+function answerPerm(a) {
+  if (!permCur) return;
+  window.browsing.permAnswer(permCur.id, a);
+  permCur = null; permEl.classList.remove('on');
+  setTimeout(nextPerm, 250);
+}
+window.browsing.onPerm((r) => { permQ.push(r); nextPerm(); });
+window.browsing.onPermCancel((id) => {
+  permQ = permQ.filter((r) => r.id !== id);
+  if (permCur && permCur.id === id) { permCur = null; permEl.classList.remove('on'); setTimeout(nextPerm, 250); }
+});
+$('pAllow').onclick = () => answerPerm('always');
+$('pOnce').onclick = () => answerPerm('once');
+$('pBlock').onclick = () => answerPerm('block');
+$('pX').onclick = () => answerPerm('dismiss');
+$('sPerm').onclick = () => { window.browsing.permReset(); toast('Site permissions reset'); };
 
 /* ---------- Start ---------- */
 loadPrefs();
