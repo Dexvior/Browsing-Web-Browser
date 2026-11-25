@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell, clipboard, screen } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell, clipboard, screen, net, safeStorage, webContents } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -106,7 +106,7 @@ app.on('web-contents-created', (_, contents) => {
           else if (key === 'tab') name = 'prev-tab';
           else if (key === '+') name = 'zoom-in';
         } else {
-          name = { t: 'new-tab', w: 'close-tab', r: 'reload', l: 'focus-url', f: 'find', ',': 'settings',
+          name = { t: 'new-tab', w: 'close-tab', r: 'reload', l: 'focus-url', f: 'find', ',': 'settings', h: 'history',
             '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', tab: 'next-tab' }[key] || null;
           if (!name && /^[1-9]$/.test(key)) name = 'tab-' + key;
         }
@@ -119,6 +119,7 @@ app.on('web-contents-created', (_, contents) => {
   }
 
   if (!isMain) {
+    if (vpnState.state === 'on') { try { contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp'); } catch {} }
     contents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key.toLowerCase() === 'f12') { event.preventDefault(); contents.toggleDevTools(); }
     });
@@ -173,10 +174,12 @@ ipcMain.handle('check-updates', async () => {
 ipcMain.on('install-update', () => autoUpdater.quitAndInstall());
 ipcMain.on('show-file', (_, p) => { if (typeof p === 'string') shell.showItemInFolder(p); });
 
-/* ---------- downloads drawer ---------- */
-const downloads = new Map();   // id -> { item, info }
+/* ---------- downloads (live list + saved history) ---------- */
+const downloads = new Map();   // active downloads: id -> { item, info }
 const dlFiles = new Map();     // id -> saved file path
-let dlSeq = 0;
+let dlSeq = 0, dlHist = [];    // dlHist: newest first; written to disk only while "Save download history" is on
+const dlHistFile = () => path.join(app.getPath('userData'), 'downloads.json');
+const saveDlHist = () => { try { fs.writeFileSync(dlHistFile(), JSON.stringify(dlHist.slice(0, 500))); } catch {} };
 function uniquePath(dir, name) {
   const ext = path.extname(name), base = path.basename(name, ext);
   let p = path.join(dir, name), i = 1;
@@ -184,12 +187,16 @@ function uniquePath(dir, name) {
   return p;
 }
 function setupDownloads(ses) {
-  ses.on('will-download', (_e, item) => {
-    const id = ++dlSeq;
+  try { dlHist = JSON.parse(fs.readFileSync(dlHistFile(), 'utf8')); } catch { dlHist = []; }
+  dlHist.forEach((h) => { dlFiles.set(h.id, h.file); dlSeq = Math.max(dlSeq, h.id); });
+  ses.on('will-download', (_e, item, wc) => {
+    const id = ++dlSeq, ts = Date.now();
     const file = uniquePath(app.getPath('downloads'), item.getFilename() || 'download');
     item.setSavePath(file);                       // saves straight to Downloads, like Chrome
     dlFiles.set(id, file);
-    const info = (state) => ({ id, name: path.basename(file), total: item.getTotalBytes(), received: item.getReceivedBytes(), paused: item.isPaused(), state });
+    const url = item.getURL();
+    const page = wc && !wc.isDestroyed() ? wc.getURL() : '';
+    const info = (state) => ({ id, name: path.basename(file), url, page, ts, total: item.getTotalBytes(), received: item.getReceivedBytes(), paused: item.isPaused(), state });
     downloads.set(id, { item, info });
     send('dl', { ...info('progressing'), type: 'start' });
     let last = 0;
@@ -199,17 +206,31 @@ function setupDownloads(ses) {
       last = now;
       send('dl', { ...info(state), type: 'update' });
     });
-    item.once('done', (_ev, state) => { send('dl', { ...info(state), type: 'done' }); downloads.delete(id); });
+    item.once('done', (_ev, state) => {
+      const i = info(state);
+      send('dl', { ...i, type: 'done' });
+      downloads.delete(id);
+      if (flags.saveDl) {                         // when the toggle is off nothing is written
+        dlHist.unshift({ id, name: i.name, file, url, page, ts, total: i.total || i.received, state });
+        dlHist = dlHist.slice(0, 500);
+        saveDlHist();
+      }
+    });
   });
 }
+ipcMain.handle('dl-history', () => dlHist);
 ipcMain.on('dl-act', (_, act, id) => {
   const d = downloads.get(id), file = dlFiles.get(id);
   if (act === 'cancel' && d) d.item.cancel();
   else if (act === 'pause' && d && !d.item.isPaused()) { d.item.pause(); send('dl', { ...d.info('progressing'), type: 'update' }); }
   else if (act === 'resume' && d && d.item.isPaused()) { d.item.resume(); send('dl', { ...d.info('progressing'), type: 'update' }); }
-  else if (act === 'open' && file) shell.openPath(file);
-  else if (act === 'show' && file) shell.showItemInFolder(file);
+  else if ((act === 'open' || act === 'show') && file) {
+    if (!fs.existsSync(file)) { send('notify', 'That file was moved or deleted'); return; }
+    if (act === 'open') shell.openPath(file); else shell.showItemInFolder(file);
+  }
   else if (act === 'folder') shell.openPath(app.getPath('downloads'));
+  else if (act === 'forget') { dlHist = dlHist.filter((h) => h.id !== id); if (!d) dlFiles.delete(id); saveDlHist(); }
+  else if (act === 'clear') { dlHist = []; saveDlHist(); for (const k of [...dlFiles.keys()]) if (!downloads.has(k)) dlFiles.delete(k); }
 });
 
 /* ---------- permission prompts (camera, microphone, location, notifications, ...) ---------- */
@@ -267,6 +288,138 @@ ipcMain.on('perm-answer', (_, id, answer) => {
   else p.callback(false);
 });
 ipcMain.on('perm-reset', () => { perms = {}; savePerms(); });
+const SITE_KINDS = new Set(['camera', 'microphone', 'geolocation', 'notifications', 'clipboard-read', 'midi', 'midiSysex']);
+ipcMain.handle('perm-list', (_, origin) => {
+  const out = {}, p = origin + '|';
+  if (typeof origin === 'string') for (const k of Object.keys(perms)) if (k.startsWith(p)) out[k.slice(p.length)] = perms[k];
+  return out;
+});
+ipcMain.on('perm-set', (_, origin, kind, value) => {
+  if (typeof origin !== 'string' || !/^https?:\/\//.test(origin) || !SITE_KINDS.has(kind)) return;
+  const key = origin + '|' + kind;
+  if (value === 'allow' || value === 'block') perms[key] = value; else delete perms[key];
+  savePerms();
+});
+ipcMain.on('perm-forget-site', (_, origin) => {
+  if (typeof origin !== 'string') return;
+  Object.keys(perms).forEach((k) => { if (k.startsWith(origin + '|')) delete perms[k]; });
+  savePerms();
+});
+
+/* ---------- settings that main-process code needs (the app window is the source of truth) ---------- */
+const flags = { adblock: true, saveDl: true, vpnAuto: false };
+let autoDone = false;
+ipcMain.on('flags', (e) => { e.returnValue = { adblock: flags.adblock }; });
+ipcMain.on('set-flags', (_, f) => {
+  if (!f) return;
+  flags.adblock = !!f.adblock; flags.saveDl = !!f.saveDl; flags.vpnAuto = !!f.vpnAuto;
+  if (flags.vpnAuto && !autoDone && vpn.server) { autoDone = true; vpnConnect(); }
+});
+
+/* ---------- built-in ad and tracker blocker (network level) ---------- */
+let blockedCount = 0;
+const AD_HOSTS = new Set(`doubleclick.net googlesyndication.com googleadservices.com adservice.google.com 2mdn.net
+  google-analytics.com stats.g.doubleclick.net adsafeprotected.com moatads.com amazon-adsystem.com adnxs.com adsrvr.org
+  rubiconproject.com pubmatic.com openx.net criteo.com criteo.net taboola.com outbrain.com smartadserver.com adform.net
+  advertising.com media.net teads.tv casalemedia.com indexww.com lijit.com sharethrough.com 33across.com bidswitch.net
+  contextweb.com yieldmo.com triplelift.com gumgum.com spotxchange.com springserve.com serving-sys.com flashtalking.com
+  mathtag.com bluekai.com krxd.net demdex.net everesttech.net adroll.com quantserve.com quantcast.com scorecardresearch.com
+  imrworldwide.com hotjar.com mouseflow.com crazyegg.com mixpanel.com popads.net propellerads.com exoclick.com juicyads.com
+  trafficjunky.net adsterra.com revcontent.com mgid.com zedo.com adcolony.com applovin.com mopub.com inmobi.com smaato.net
+  vungle.com chartboost.com ads-twitter.com analytics.twitter.com analytics.tiktok.com px.ads.linkedin.com clarity.ms
+  bat.bing.com ads.yahoo.com analytics.yahoo.com ct.pinterest.com tr.snapchat.com pixel.facebook.com adtechus.com
+  adbrite.com admob.com ad.gt zemanta.com rlcdn.com tapad.com agkn.com eyeota.com liadm.com id5-sync.com sitescout.com
+  stackadapt.com nr-data.net hs-analytics.net`.split(/\s+/).filter(Boolean));
+const hostCache = new Map();
+function hostBlocked(host) {
+  if (hostCache.has(host)) return hostCache.get(host);
+  const parts = host.split('.');
+  let r = false;
+  for (let i = 0; i < parts.length - 1 && !r; i++) r = AD_HOSTS.has(parts.slice(i).join('.'));
+  if (hostCache.size > 5000) hostCache.clear();
+  hostCache.set(host, r);
+  return r;
+}
+const YT_AD_PATHS = [/^\/pagead\//, /^\/api\/stats\/ads/, /^\/ptracking/];
+function setupAdblock(ses) {
+  ses.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }, (d, cb) => {
+    if (!flags.adblock || d.resourceType === 'mainFrame') return cb({});
+    let u;
+    try { u = new URL(d.url); } catch { return cb({}); }
+    const bad = hostBlocked(u.hostname) || (/(^|\.)youtube\.com$/.test(u.hostname) && YT_AD_PATHS.some((rx) => rx.test(u.pathname)));
+    if (bad) blockedCount++;
+    cb({ cancel: bad });
+  });
+}
+ipcMain.handle('adblock-count', () => blockedCount);
+
+/* ---------- built-in VPN (routes browser traffic through a server you configure) ---------- */
+const vpnFile = () => path.join(app.getPath('userData'), 'vpn.json');
+let vpn = { server: '', user: '', pass: '' };            // pass is encrypted with the system's secure storage
+let vpnState = { state: 'off', message: '', server: '' };
+function loadVpn() { try { vpn = { ...vpn, ...JSON.parse(fs.readFileSync(vpnFile(), 'utf8')) }; } catch {} vpnState.server = vpn.server; }
+const saveVpn = () => { try { fs.writeFileSync(vpnFile(), JSON.stringify(vpn)); } catch {} };
+function normServer(s) {
+  s = (s || '').trim();
+  if (!s) return '';
+  if (!/^[a-z0-9]+:\/\//i.test(s)) s = 'http://' + s;
+  return /^(socks5|socks4|http|https):\/\/[^\s/]+:\d{1,5}$/i.test(s) ? s : null;
+}
+const vpnPass = () => { try { return vpn.pass ? safeStorage.decryptString(Buffer.from(vpn.pass, 'base64')) : ''; } catch { return ''; } };
+function setVpnState(state, message = '') { vpnState = { state, message, server: vpn.server }; send('vpn-status', vpnState); }
+function webrtc(on) {
+  webContents.getAllWebContents().forEach((w) => { try { w.setWebRTCIPHandlingPolicy(on ? 'disable_non_proxied_udp' : 'default'); } catch {} });
+}
+function probe(ses) {
+  return new Promise((resolve, reject) => {
+    const req = net.request({ url: 'https://www.gstatic.com/generate_204', session: ses });
+    const timer = setTimeout(() => { try { req.abort(); } catch {} reject(new Error('timeout')); }, 9000);
+    req.on('login', (info, cb) => { if (info.isProxy && vpn.user) cb(vpn.user, vpnPass()); else cb(); });
+    req.on('response', (res) => {
+      clearTimeout(timer);
+      res.on('data', () => {}); res.on('end', () => {});
+      if (res.statusCode === 204 || res.statusCode === 200) resolve(); else reject(new Error('HTTP ' + res.statusCode));
+    });
+    req.on('error', (e) => { clearTimeout(timer); reject(e); });
+    req.end();
+  });
+}
+async function vpnConnect() {
+  const ses = session.fromPartition(PARTITION);
+  const server = normServer(vpn.server);
+  if (!server) { setVpnState('error', 'Add a server first, for example socks5://host:1080'); return; }
+  setVpnState('connecting');
+  await ses.setProxy({ proxyRules: server, proxyBypassRules: '<local>' });
+  await ses.closeAllConnections();
+  try { await probe(ses); }
+  catch { await vpnDisconnect(true); setVpnState('error', 'Could not reach the internet through this server'); return; }
+  webrtc(true);
+  setVpnState('on');
+}
+async function vpnDisconnect(quiet) {
+  const ses = session.fromPartition(PARTITION);
+  await ses.setProxy({ mode: 'system' });
+  await ses.closeAllConnections();
+  webrtc(false);
+  if (!quiet) setVpnState('off');
+}
+app.on('login', (event, _wc, _req, authInfo, callback) => {
+  if (authInfo.isProxy && vpn.user && vpnState.state !== 'off') { event.preventDefault(); callback(vpn.user, vpnPass()); }
+});
+ipcMain.handle('vpn-get', () => ({ ...vpnState, server: vpn.server, user: vpn.user, hasPass: !!vpn.pass }));
+ipcMain.handle('vpn-save', (_, o) => {
+  const server = normServer(o && o.server);
+  if (server === null) return { ok: false, error: 'Use a server like socks5://host:1080 or http://host:8080' };
+  vpn.server = server; vpn.user = ((o && o.user) || '').trim();
+  if (o && typeof o.pass === 'string') {
+    if (o.pass === '') vpn.pass = '';
+    else if (safeStorage.isEncryptionAvailable()) vpn.pass = safeStorage.encryptString(o.pass).toString('base64');
+    else return { ok: false, error: 'Secure password storage is not available on this system' };
+  }
+  saveVpn();
+  return { ok: true, server, hasPass: !!vpn.pass };
+});
+ipcMain.handle('vpn-toggle', async (_, on) => { if (on) await vpnConnect(); else await vpnDisconnect(); return { ...vpnState, server: vpn.server }; });
 
 /* ---------- automatic updates (GitHub Releases) ---------- */
 function setupUpdates() {
@@ -299,6 +452,8 @@ app.whenReady().then(() => {
   });
   setupDownloads(ses);
   setupPermissions(ses);
+  setupAdblock(ses);
+  loadVpn();
   createWindow();
   setupUpdates();
 });
