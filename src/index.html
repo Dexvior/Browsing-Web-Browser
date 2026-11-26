@@ -34,6 +34,7 @@
       <div class="omni">
         <div class="urlwrap"><button class="lock" id="lock" data-s="" title="Site information and permissions" aria-label="Site information and permissions"><svg class="l-s" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><svg class="l-i" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.7"/></svg></button>
           <input id="url" type="text" spellcheck="false" autocomplete="off" placeholder="Search with DuckDuckGo or enter an address" />
+          <button class="star" id="starBtn" hidden title="Bookmark this page (Ctrl+D)" aria-label="Bookmark this page"><svg viewBox="0 0 24 24"><path d="M12 4l2.4 5 5.4.7-4 3.8 1 5.4L12 16.3 7.2 19l1-5.4-4-3.8 5.4-.7z"/></svg></button>
           <div class="sugg" id="sugg" role="listbox"></div>
         </div>
       </div>
@@ -60,6 +61,8 @@
     <div class="menu" id="menu" role="menu">
       <button class="menu-item" id="mNewTab"><span>New tab</span><span class="hint">Ctrl+T</span></button>
       <button class="menu-item" id="mFind"><span>Find in page</span><span class="hint">Ctrl+F</span></button>
+      <button class="menu-item" id="mBookmark"><span>Bookmark this page</span><span class="hint">Ctrl+D</span></button>
+      <button class="menu-item" id="mPriv"><span>Privacy and VPN</span><span class="hint">Ctrl+Shift+P</span></button>
       <button class="menu-item" id="mHistory"><span>History</span><span class="hint">Ctrl+H</span></button>
       <button class="menu-item" id="mSettings"><span>Settings</span><span class="hint">Ctrl+,</span></button>
       <button class="menu-item" id="mClear"><span>Clear browsing data</span></button>
@@ -86,6 +89,16 @@
             <div class="srow" id="row2"><span>Fade to</span><input type="color" id="c2" aria-label="Gradient end color"></div>
             <div class="preview" id="preview"></div>
           </div>
+          <h3>Home screen</h3>
+          <div class="srow"><span>Stickers</span><span class="btns"><button class="pbtn" id="stkAdd">Add sticker</button><button class="pbtn" id="stkArrange">Arrange</button></span></div>
+          <div class="stk-list" id="stkList"></div>
+          <div class="srow"><span>Wallpaper</span><span class="btns"><button class="pbtn" id="wallAdd">Choose image</button><button class="pbtn" id="wallRemove">Remove</button></span></div>
+          <div class="srow"><span>Wallpaper dimming</span><input type="range" id="wallDim" min="0" max="80" value="35" aria-label="Wallpaper dimming" /></div>
+          <div class="srow stack"><span>Font</span><div class="chips" id="fontChips"></div></div>
+          <div class="srow"><span>Custom font</span><span class="btns"><button class="pbtn" id="fontAdd">Upload font</button></span></div>
+          <input type="file" id="stkFile" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/avif" multiple hidden />
+          <input type="file" id="wallFile" accept="image/*" hidden />
+          <input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2" hidden />
           <h3>Layout</h3>
           <div class="srow"><span>Tab bar position</span>
             <div class="seg" id="dockSeg"><button data-value="top">Top</button><button data-value="bottom">Bottom</button><button data-value="left">Left</button><button data-value="right">Right</button></div></div>
@@ -96,24 +109,13 @@
             <div class="seg" id="engSeg" data-pref="engine" style="width:300px"><button data-value="duckduckgo">DuckDuckGo</button><button data-value="google">Google</button><button data-value="bing">Bing</button><button data-value="brave">Brave</button></div></div>
           <div class="srow"><span>On startup</span>
             <div class="seg" id="startSeg" data-pref="startup" style="width:230px"><button data-value="new">New tab</button><button data-value="restore">Restore tabs</button></div></div>
-          <div class="srow"><span>Reduce motion</span><button class="sw" id="swMotion" role="switch" aria-checked="false" aria-label="Reduce motion"><i></i></button></div>
+          <h3>Performance</h3>
+          <div class="srow"><span>Animations</span><div class="seg" id="motionSeg" data-pref="motion" style="width:230px"><button data-value="full">Full</button><button data-value="lite">Lite</button><button data-value="off">Off</button></div></div>
+          <div class="srow"><span>Sleep inactive tabs</span><div class="seg" id="sleepSeg" data-pref="sleep" style="width:260px"><button data-value="0">Off</button><button data-value="5">5 min</button><button data-value="15">15 min</button><button data-value="30">30 min</button></div></div>
+          <div class="srow"><span id="memText">Memory in use</span></div>
           <h3>Privacy</h3>
-          <div class="srow"><span>Save tab history</span><button class="sw" data-pref="saveTabs" role="switch" aria-checked="true" aria-label="Save tab history"><i></i></button></div>
-          <div class="srow"><span>Save search and browsing history</span><button class="sw" data-pref="saveHist" role="switch" aria-checked="true" aria-label="Save search and browsing history"><i></i></button></div>
-          <div class="srow"><span>Save download history</span><button class="sw" data-pref="saveDl" role="switch" aria-checked="true" aria-label="Save download history"><i></i></button></div>
-          <div class="srow"><span>Built-in ad blocker<small id="abCount"></small></span><button class="sw" data-pref="adblock" role="switch" aria-checked="true" aria-label="Built-in ad blocker"><i></i></button></div>
-          <div class="srow"><span>Auto-connect built-in VPN</span><button class="sw" data-pref="vpnAuto" role="switch" aria-checked="true" aria-label="Auto-connect built-in VPN"><i></i></button></div>
-          <h3>Built-in VPN</h3>
-          <div class="vpnbox">
-            <input class="fld" id="vpnServer" type="text" spellcheck="false" placeholder="Server, for example socks5://host:1080" />
-            <div class="two"><input class="fld" id="vpnUser" type="text" spellcheck="false" placeholder="Username (optional)" /><input class="fld" id="vpnPass" type="password" placeholder="Password (optional)" /></div>
-            <div class="vrow"><span id="vpnMsg">Off</span><span class="btns"><button class="pbtn" id="vpnSave">Save</button><button class="pbtn primary" id="vpnGo">Connect</button></span></div>
-          </div>
+          <div class="srow"><span>Privacy and VPN</span><button class="pbtn" id="sOpenPriv">Open</button></div>
           <h3>Data</h3>
-          <div class="srow"><span>Browsing history</span><span class="btns"><button class="pbtn" id="sHistView">View</button><button class="pbtn" id="sHistClear">Clear</button></span></div>
-          <div class="srow"><span>Download history</span><button class="pbtn" id="sDlClear">Clear</button></div>
-          <div class="srow"><span>Site permissions</span><button class="pbtn" id="sPerm">Reset all</button></div>
-          <div class="srow"><span>Cookies and cache</span><button class="pbtn" id="sClear">Clear</button></div>
           <div class="srow"><span>Settings</span><button class="pbtn" id="sReset">Reset to defaults</button></div>
           <h3>About</h3>
           <div class="srow"><span id="verText">Browsing</span><button class="pbtn" id="sUpd">Check for updates</button></div>
@@ -121,11 +123,40 @@
       </div>
     </div>
 
+    <div class="settings" id="privPanel" role="dialog" aria-label="Privacy and VPN" aria-hidden="true">
+      <div class="sheet">
+        <div class="sh-head"><h2>Privacy and VPN</h2><button class="icon-btn" id="pvClose" aria-label="Close privacy and VPN"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        <div class="sh-body">
+          <div class="vpn-hero">
+            <div><div class="vh-t" id="vpnTitle">VPN is off</div><div class="vh-s" id="vpnMsg">Your traffic is not routed through a VPN</div></div>
+            <button class="sw big" id="vpnSw" role="switch" aria-checked="false" aria-label="VPN"><i></i></button>
+          </div>
+          <h3>Server</h3>
+          <div class="vlist" id="vpnList"></div>
+          <div class="vcreds" id="vpnCreds" hidden>
+            <input class="fld" id="vpnCustom" type="text" spellcheck="false" placeholder="Server, for example socks5://host:1080" />
+            <div class="two"><input class="fld" id="vpnUser" type="text" spellcheck="false" placeholder="Username (if the server needs one)" /><input class="fld" id="vpnPass" type="password" placeholder="Password" /></div>
+            <div class="btns" style="justify-content:flex-end"><button class="pbtn" id="vpnSave">Save</button></div>
+          </div>
+          <div class="srow"><span>Auto-connect built-in VPN</span><button class="sw" data-pref="vpnAuto" role="switch" aria-checked="true" aria-label="Auto-connect built-in VPN"><i></i></button></div>
+          <h3>Privacy</h3>
+          <div class="srow"><span>Save tab history</span><button class="sw" data-pref="saveTabs" role="switch" aria-checked="true" aria-label="Save tab history"><i></i></button></div>
+          <div class="srow"><span>Save search and browsing history</span><button class="sw" data-pref="saveHist" role="switch" aria-checked="true" aria-label="Save search and browsing history"><i></i></button></div>
+          <div class="srow"><span>Save download history</span><button class="sw" data-pref="saveDl" role="switch" aria-checked="true" aria-label="Save download history"><i></i></button></div>
+          <div class="srow"><span>Built-in ad blocker<small id="abCount"></small></span><button class="sw" data-pref="adblock" role="switch" aria-checked="true" aria-label="Built-in ad blocker"><i></i></button></div>
+          <h3>Clear data</h3>
+          <div class="srow"><span>Browsing history</span><span class="btns"><button class="pbtn" id="sHistView">View</button><button class="pbtn" id="sHistClear">Clear</button></span></div>
+          <div class="srow"><span>Download history</span><button class="pbtn" id="sDlClear">Clear</button></div>
+          <div class="srow"><span>Cookies and cache</span><button class="pbtn" id="sClear">Clear</button></div>
+          <div class="srow"><span>Site permissions</span><button class="pbtn" id="sPerm">Reset all</button></div>
+        </div>
+      </div>
+    </div>
     <div class="settings" id="histPanel" role="dialog" aria-label="History" aria-hidden="true">
       <div class="sheet">
         <div class="sh-head"><h2>History</h2><button class="icon-btn" id="hClose" aria-label="Close history"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
         <div class="sh-body">
-          <div class="h-tools"><div class="seg" id="hTabs" style="width:200px"><button data-value="pages">Pages</button><button data-value="searches">Searches</button></div><button class="pbtn" id="hClear">Clear all</button></div>
+          <div class="h-tools"><div class="seg" id="hTabs" style="width:330px"><button data-value="pages">Pages</button><button data-value="searches">Searches</button><button data-value="closed">Closed</button><button data-value="bookmarks">Bookmarks</button></div><button class="pbtn" id="hClear">Clear all</button></div>
           <input class="fld" id="hq" type="text" spellcheck="false" placeholder="Search history">
           <div id="hList"></div>
         </div>
@@ -157,6 +188,8 @@
     </div>
     <div class="zoomp" id="zoomP">100%</div>
     <div class="toasts" id="toasts"></div>
+
+    <div class="ctx" id="ctx" role="menu"></div>
 
     <div id="dockOverlay">
       <div class="zone" data-z="top">Top</div>

@@ -2,6 +2,8 @@ const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell, clipboar
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+const tcp = require('net');
+const { pathToFileURL } = require('url');
 
 const PARTITION = 'persist:browsing';
 const OVERLAY = {
@@ -100,13 +102,15 @@ app.on('web-contents-created', (_, contents) => {
       const key = input.key.toLowerCase();
       const ctrl = input.control || input.meta;
       let name = null;
+      if (key === 'f11') { event.preventDefault(); if (win) win.setFullScreen(!win.isFullScreen()); return; }
       if (ctrl && !input.alt) {
         if (input.shift) {
           if (key === 't') name = 'reopen-tab';
           else if (key === 'tab') name = 'prev-tab';
           else if (key === '+') name = 'zoom-in';
+          else if (key === 'p') name = 'privacy';
         } else {
-          name = { t: 'new-tab', w: 'close-tab', r: 'reload', l: 'focus-url', f: 'find', ',': 'settings', h: 'history',
+          name = { t: 'new-tab', w: 'close-tab', r: 'reload', l: 'focus-url', f: 'find', ',': 'settings', h: 'history', d: 'bookmark',
             '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', tab: 'next-tab' }[key] || null;
           if (!name && /^[1-9]$/.test(key)) name = 'tab-' + key;
         }
@@ -307,13 +311,13 @@ ipcMain.on('perm-forget-site', (_, origin) => {
 });
 
 /* ---------- settings that main-process code needs (the app window is the source of truth) ---------- */
-const flags = { adblock: true, saveDl: true, vpnAuto: false };
+const flags = { adblock: true, saveDl: true, vpnAuto: false, saveTabs: true };
 let autoDone = false;
 ipcMain.on('flags', (e) => { e.returnValue = { adblock: flags.adblock }; });
 ipcMain.on('set-flags', (_, f) => {
   if (!f) return;
-  flags.adblock = !!f.adblock; flags.saveDl = !!f.saveDl; flags.vpnAuto = !!f.vpnAuto;
-  if (flags.vpnAuto && !autoDone && vpn.server) { autoDone = true; vpnConnect(); }
+  flags.adblock = !!f.adblock; flags.saveDl = !!f.saveDl; flags.vpnAuto = !!f.vpnAuto; flags.saveTabs = f.saveTabs !== false;
+  if (flags.vpnAuto && !autoDone) { autoDone = true; vpnConnect(); }
 });
 
 /* ---------- built-in ad and tracker blocker (network level) ---------- */
@@ -353,28 +357,74 @@ function setupAdblock(ses) {
 }
 ipcMain.handle('adblock-count', () => blockedCount);
 
-/* ---------- built-in VPN (routes browser traffic through a server you configure) ---------- */
+/* ---------- built-in VPN (routes browser traffic through a server from the list, or your own) ---------- */
 const vpnFile = () => path.join(app.getPath('userData'), 'vpn.json');
-let vpn = { server: '', user: '', pass: '' };            // pass is encrypted with the system's secure storage
-let vpnState = { state: 'off', message: '', server: '' };
-function loadVpn() { try { vpn = { ...vpn, ...JSON.parse(fs.readFileSync(vpnFile(), 'utf8')) }; } catch {} vpnState.server = vpn.server; }
-const saveVpn = () => { try { fs.writeFileSync(vpnFile(), JSON.stringify(vpn)); } catch {} };
+const serversCache = () => path.join(app.getPath('userData'), 'servers-cache.json');
+// The list of servers is published in servers.json in the project's GitHub repository, so it can change without a new release.
+const SERVERS_URL = 'https://raw.githubusercontent.com/Dexvior/Browsing-Web-Browser/main/servers.json';
+const TOR = [
+  { id: 'tor-browser', name: 'Tor (Tor Browser)', country: 'TOR', city: 'Needs Tor Browser to be open', server: 'socks5://127.0.0.1:9150', login: false },
+  { id: 'tor-service', name: 'Tor (system service)', country: 'TOR', city: 'Needs the Tor service to be running', server: 'socks5://127.0.0.1:9050', login: false },
+];
+let vpn = { sel: 'auto', custom: '', creds: {} };          // creds[id] = { user, pass }, pass encrypted with the system's secure storage
+let remoteServers = [], serversReady = Promise.resolve();
+let curCreds = { user: '', pass: '' };
+let vpnState = { state: 'off', message: '', label: '' };
+
 function normServer(s) {
   s = (s || '').trim();
   if (!s) return '';
   if (!/^[a-z0-9]+:\/\//i.test(s)) s = 'http://' + s;
   return /^(socks5|socks4|http|https):\/\/[^\s/]+:\d{1,5}$/i.test(s) ? s : null;
 }
-const vpnPass = () => { try { return vpn.pass ? safeStorage.decryptString(Buffer.from(vpn.pass, 'base64')) : ''; } catch { return ''; } };
-function setVpnState(state, message = '') { vpnState = { state, message, server: vpn.server }; send('vpn-status', vpnState); }
+const cleanServers = (arr) => (Array.isArray(arr) ? arr : []).slice(0, 50).map((s) => ({
+  id: String((s && (s.id || s.server)) || '').slice(0, 40), name: String((s && (s.name || s.server)) || '').slice(0, 40),
+  country: String((s && s.country) || '').slice(0, 3).toUpperCase(), city: String((s && s.city) || '').slice(0, 40),
+  server: normServer(s && s.server), login: !!(s && s.login),
+})).filter((s) => s.id && s.server);
+const allServers = () => [...remoteServers, ...TOR];
+async function loadServers() {
+  try { remoteServers = cleanServers(JSON.parse(fs.readFileSync(path.join(__dirname, 'servers.json'), 'utf8')).servers); } catch {}
+  try { remoteServers = cleanServers(JSON.parse(fs.readFileSync(serversCache(), 'utf8'))); } catch {}
+  try {
+    const r = await net.fetch(SERVERS_URL, { signal: AbortSignal.timeout(6000) });
+    if (r.ok) { const list = cleanServers((await r.json()).servers); remoteServers = list; fs.writeFileSync(serversCache(), JSON.stringify(list)); }
+  } catch {}
+}
+function loadVpn() { try { vpn = { ...vpn, ...JSON.parse(fs.readFileSync(vpnFile(), 'utf8')) }; } catch {} if (!vpn.creds) vpn.creds = {}; }
+const saveVpn = () => { try { fs.writeFileSync(vpnFile(), JSON.stringify(vpn)); } catch {} };
+const decryptPass = (enc) => { try { return enc ? safeStorage.decryptString(Buffer.from(enc, 'base64')) : ''; } catch { return ''; } };
+function setVpnState(state, message = '', label = '') { vpnState = { state, message, label }; send('vpn-status', vpnState); }
 function webrtc(on) {
   webContents.getAllWebContents().forEach((w) => { try { w.setWebRTCIPHandlingPolicy(on ? 'disable_non_proxied_udp' : 'default'); } catch {} });
+}
+function pingOne(server, ms = 2500) {
+  return new Promise((resolve) => {
+    let u;
+    try { u = new URL(server); } catch { return resolve(null); }
+    const t0 = Date.now(), sock = tcp.connect({ host: u.hostname, port: +u.port || 80, timeout: ms });
+    sock.once('connect', () => { sock.destroy(); resolve(Date.now() - t0); });
+    sock.once('timeout', () => { sock.destroy(); resolve(null); });
+    sock.once('error', () => resolve(null));
+  });
+}
+async function effective() {
+  await serversReady;
+  if (vpn.sel === 'custom') { const s = normServer(vpn.custom); return s ? { id: 'custom', server: s, name: 'Custom server' } : { error: 'Enter your server first' }; }
+  if (vpn.sel === 'auto') {
+    if (!remoteServers.length) return { error: 'No servers are published yet. Pick Tor or add your own server.' };
+    const res = await Promise.all(remoteServers.map(async (s) => ({ s, ms: await pingOne(s.server) })));
+    const ok = res.filter((x) => x.ms != null).sort((a, b) => a.ms - b.ms);
+    return ok.length ? { id: ok[0].s.id, server: ok[0].s.server, name: ok[0].s.name } : { error: 'No server responded' };
+  }
+  const s = allServers().find((x) => x.id === vpn.sel);
+  return s ? { id: s.id, server: s.server, name: s.name } : { error: 'That server is no longer in the list' };
 }
 function probe(ses) {
   return new Promise((resolve, reject) => {
     const req = net.request({ url: 'https://www.gstatic.com/generate_204', session: ses });
     const timer = setTimeout(() => { try { req.abort(); } catch {} reject(new Error('timeout')); }, 9000);
-    req.on('login', (info, cb) => { if (info.isProxy && vpn.user) cb(vpn.user, vpnPass()); else cb(); });
+    req.on('login', (info, cb) => { if (info.isProxy && curCreds.user) cb(curCreds.user, curCreds.pass); else cb(); });
     req.on('response', (res) => {
       clearTimeout(timer);
       res.on('data', () => {}); res.on('end', () => {});
@@ -386,15 +436,17 @@ function probe(ses) {
 }
 async function vpnConnect() {
   const ses = session.fromPartition(PARTITION);
-  const server = normServer(vpn.server);
-  if (!server) { setVpnState('error', 'Add a server first, for example socks5://host:1080'); return; }
   setVpnState('connecting');
-  await ses.setProxy({ proxyRules: server, proxyBypassRules: '<local>' });
+  const eff = await effective();
+  if (eff.error) { setVpnState('error', eff.error); return; }
+  const c = vpn.creds[eff.id] || {};
+  curCreds = { user: c.user || '', pass: decryptPass(c.pass) };
+  await ses.setProxy({ proxyRules: eff.server, proxyBypassRules: '<local>' });
   await ses.closeAllConnections();
   try { await probe(ses); }
-  catch { await vpnDisconnect(true); setVpnState('error', 'Could not reach the internet through this server'); return; }
+  catch { await vpnDisconnect(true); setVpnState('error', 'Could not reach the internet through ' + eff.name); return; }
   webrtc(true);
-  setVpnState('on');
+  setVpnState('on', '', eff.name);
 }
 async function vpnDisconnect(quiet) {
   const ses = session.fromPartition(PARTITION);
@@ -404,22 +456,143 @@ async function vpnDisconnect(quiet) {
   if (!quiet) setVpnState('off');
 }
 app.on('login', (event, _wc, _req, authInfo, callback) => {
-  if (authInfo.isProxy && vpn.user && vpnState.state !== 'off') { event.preventDefault(); callback(vpn.user, vpnPass()); }
+  if (authInfo.isProxy && curCreds.user && vpnState.state !== 'off') { event.preventDefault(); callback(curCreds.user, curCreds.pass); }
 });
-ipcMain.handle('vpn-get', () => ({ ...vpnState, server: vpn.server, user: vpn.user, hasPass: !!vpn.pass }));
-ipcMain.handle('vpn-save', (_, o) => {
-  const server = normServer(o && o.server);
-  if (server === null) return { ok: false, error: 'Use a server like socks5://host:1080 or http://host:8080' };
-  vpn.server = server; vpn.user = ((o && o.user) || '').trim();
-  if (o && typeof o.pass === 'string') {
-    if (o.pass === '') vpn.pass = '';
-    else if (safeStorage.isEncryptionAvailable()) vpn.pass = safeStorage.encryptString(o.pass).toString('base64');
-    else return { ok: false, error: 'Secure password storage is not available on this system' };
+ipcMain.handle('vpn-get', () => { const c = vpn.creds[vpn.sel] || {}; return { ...vpnState, sel: vpn.sel, custom: vpn.custom, servers: allServers(), user: c.user || '', hasPass: !!c.pass }; });
+ipcMain.handle('vpn-refresh', async () => { serversReady = loadServers(); await serversReady; return allServers(); });
+ipcMain.handle('vpn-ping', async () => { const out = {}; await Promise.all(allServers().map(async (s) => { out[s.id] = await pingOne(s.server); })); return out; });
+ipcMain.handle('vpn-select', (_, o) => {
+  if (!o) return { ok: false, error: 'Nothing selected' };
+  const sel = String(o.sel || 'auto');
+  if (sel !== 'auto' && sel !== 'custom' && !allServers().some((s) => s.id === sel)) return { ok: false, error: 'Unknown server' };
+  if (sel === 'custom') {
+    const n = normServer(o.custom);
+    if (n === null) return { ok: false, error: 'Use a server like socks5://host:1080 or http://host:8080' };
+    vpn.custom = n;
+  }
+  vpn.sel = sel;
+  if (sel !== 'auto' && (typeof o.user === 'string' || typeof o.pass === 'string')) {
+    const c = vpn.creds[sel] || (vpn.creds[sel] = { user: '', pass: '' });
+    if (typeof o.user === 'string') c.user = o.user.trim();
+    if (typeof o.pass === 'string') {
+      if (o.pass === '') c.pass = '';
+      else if (safeStorage.isEncryptionAvailable()) c.pass = safeStorage.encryptString(o.pass).toString('base64');
+      else return { ok: false, error: 'Secure password storage is not available on this system' };
+    }
   }
   saveVpn();
-  return { ok: true, server, hasPass: !!vpn.pass };
+  return { ok: true };
 });
-ipcMain.handle('vpn-toggle', async (_, on) => { if (on) await vpnConnect(); else await vpnDisconnect(); return { ...vpnState, server: vpn.server }; });
+ipcMain.handle('vpn-toggle', async (_, on) => { if (on) await vpnConnect(); else await vpnDisconnect(); return vpnState; });
+
+/* ---------- tabs saved by the main process (survives any way of closing the window) ---------- */
+const sessionFile = () => path.join(app.getPath('userData'), 'session.json');
+function writeSession(d) {
+  if (!flags.saveTabs || !d || !Array.isArray(d.urls)) return;
+  const clean = {
+    urls: d.urls.slice(0, 40).map((x) => ({ u: typeof x.u === 'string' ? x.u.slice(0, 2048) : '', p: !!x.p })),
+    active: Number.isInteger(d.active) ? d.active : 0,
+    closed: (Array.isArray(d.closed) ? d.closed : []).slice(-20).map((c) => ({ u: String(c.u || '').slice(0, 2048), t: String(c.t || '').slice(0, 200), ts: +c.ts || 0 })),
+  };
+  try { fs.writeFileSync(sessionFile(), JSON.stringify(clean)); } catch {}
+}
+ipcMain.on('session-save', (_, d) => writeSession(d));
+ipcMain.on('session-save-sync', (e, d) => { writeSession(d); e.returnValue = true; });
+ipcMain.on('session-clear', () => { try { fs.unlinkSync(sessionFile()); } catch {} });
+ipcMain.handle('session-load', () => { try { return JSON.parse(fs.readFileSync(sessionFile(), 'utf8')); } catch { return null; } });
+ipcMain.handle('mem-usage', () => Math.round(app.getAppMetrics().reduce((a, m) => a + (m.memory ? m.memory.workingSetSize : 0), 0) / 1024));
+
+/* ---------- home screen: stickers, wallpaper and fonts ---------- */
+const homeFile = () => path.join(app.getPath('userData'), 'home.json');
+let home = { stickers: [], wall: null, fonts: [], font: { kind: 'default', family: 'Urbanist' } };
+function loadHome() { try { home = { ...home, ...JSON.parse(fs.readFileSync(homeFile(), 'utf8')) }; } catch {} }
+const saveHome = () => { try { fs.writeFileSync(homeFile(), JSON.stringify(home)); } catch {} };
+const IMG_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif']);
+const FONT_MIME = { '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2' };
+const rid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+function saveUpload(sub, name, data, ok, maxMB) {
+  const ext = path.extname(String(name || '')).toLowerCase();
+  if (!ok(ext)) return { error: 'That file type is not supported' };
+  const buf = Buffer.from(data || []);
+  if (!buf.length || buf.length > maxMB * 1048576) return { error: 'The file is too large (max ' + maxMB + ' MB)' };
+  const dir = path.join(app.getPath('userData'), sub);
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, rid() + ext);
+  fs.writeFileSync(file, buf);
+  return { file };
+}
+const rm = (f) => { try { fs.unlinkSync(f); } catch {} };
+const dataUrl = (f) => { try { return 'data:' + (FONT_MIME[path.extname(f)] || 'font/ttf') + ';base64,' + fs.readFileSync(f).toString('base64'); } catch { return ''; } };
+function fontView() {
+  const f = home.font || {};
+  if (f.kind === 'custom') { const c = home.fonts.find((x) => x.family === f.family); const d = c ? dataUrl(c.file) : ''; if (d) return { kind: 'custom', family: f.family, dataUrl: d }; }
+  return f.kind === 'google' || f.kind === 'system' ? { kind: f.kind, family: f.family } : { kind: 'default', family: 'Urbanist' };
+}
+ipcMain.handle('home-get', () => ({
+  stickers: home.stickers.map((s) => ({ id: s.id, url: pathToFileURL(s.file).href, x: s.x, y: s.y, w: s.w, r: s.r, z: s.z })),
+  wall: home.wall ? { url: pathToFileURL(home.wall.file).href, dim: home.wall.dim } : null,
+  font: fontView(),
+}));
+ipcMain.handle('sticker-add', (_, o) => {
+  if (!o) return { ok: false, error: 'No file' };
+  if (home.stickers.length >= 12) return { ok: false, error: 'You can have up to 12 stickers' };
+  const r = saveUpload('stickers', o.name, o.data, (e) => IMG_EXT.has(e), 8);
+  if (r.error) return { ok: false, error: r.error };
+  const n = home.stickers.length;
+  home.stickers.push({ id: rid(), file: r.file, x: 25 + ((n * 11) % 50), y: 30 + ((n * 17) % 40), w: 14, r: 0, z: n });
+  saveHome();
+  return { ok: true };
+});
+ipcMain.handle('sticker-remove', (_, id) => {
+  const i = home.stickers.findIndex((s) => s.id === id);
+  if (i >= 0) { rm(home.stickers[i].file); home.stickers.splice(i, 1); saveHome(); }
+  return true;
+});
+ipcMain.handle('home-save-stickers', (_, list) => {
+  if (!Array.isArray(list)) return false;
+  const num = (v, lo, hi, d) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
+  list.forEach((u) => {
+    const s = u && home.stickers.find((x) => x.id === u.id);
+    if (s) { s.x = num(u.x, 0, 100, s.x); s.y = num(u.y, 0, 100, s.y); s.w = num(u.w, 3, 80, s.w); s.r = num(u.r, -360, 360, s.r); s.z = num(u.z, 0, 999, s.z); }
+  });
+  saveHome();
+  return true;
+});
+ipcMain.handle('wall-set', (_, o) => {
+  if (!o) { if (home.wall) rm(home.wall.file); home.wall = null; saveHome(); return { ok: true }; }
+  const r = saveUpload('wall', o.name, o.data, (e) => IMG_EXT.has(e), 15);
+  if (r.error) return { ok: false, error: r.error };
+  const dim = home.wall ? home.wall.dim : 35;
+  if (home.wall) rm(home.wall.file);
+  home.wall = { file: r.file, dim };
+  saveHome();
+  return { ok: true };
+});
+ipcMain.on('wall-dim', (_, v) => { if (home.wall && Number.isFinite(v)) { home.wall.dim = Math.min(80, Math.max(0, v)); saveHome(); } });
+ipcMain.handle('font-add', (_, o) => {
+  if (!o) return { ok: false, error: 'No file' };
+  if (home.fonts.length >= 8) return { ok: false, error: 'You can upload up to 8 fonts' };
+  const r = saveUpload('fonts', o.name, o.data, (e) => e in FONT_MIME, 5);
+  if (r.error) return { ok: false, error: r.error };
+  let family = String(o.name).replace(/\.[^.]+$/, '').replace(/[^\w \-]/g, '').trim().slice(0, 40) || 'Custom font';
+  while (home.fonts.some((f) => f.family === family)) family += ' 2';
+  home.fonts.push({ family, file: r.file });
+  saveHome();
+  return { ok: true, family };
+});
+ipcMain.handle('fonts-list', () => home.fonts.map((f) => f.family));
+ipcMain.handle('font-data', (_, family) => { const f = home.fonts.find((x) => x.family === family); return f ? dataUrl(f.file) : ''; });
+ipcMain.handle('font-remove', (_, family) => {
+  const i = home.fonts.findIndex((x) => x.family === family);
+  if (i >= 0) { rm(home.fonts[i].file); home.fonts.splice(i, 1); if (home.font.family === family) home.font = { kind: 'default', family: 'Urbanist' }; saveHome(); }
+  return true;
+});
+ipcMain.on('font-set', (_, o) => {
+  if (!o || typeof o.family !== 'string') return;
+  const kind = ['default', 'google', 'system', 'custom'].includes(o.kind) ? o.kind : 'default';
+  home.font = { kind, family: o.family.slice(0, 60) };
+  saveHome();
+});
 
 /* ---------- automatic updates (GitHub Releases) ---------- */
 function setupUpdates() {
@@ -454,6 +627,8 @@ app.whenReady().then(() => {
   setupPermissions(ses);
   setupAdblock(ses);
   loadVpn();
+  loadHome();
+  serversReady = loadServers();
   createWindow();
   setupUpdates();
 });

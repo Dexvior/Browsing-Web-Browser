@@ -10,5 +10,9 @@ contextBridge.exposeInMainWorld('browsing', {
   dlAct: send('dl-act'), permAnswer: send('perm-answer'), permReset: send('perm-reset'), permSet: send('perm-set'), permForget: send('perm-forget-site'),
   clearData: call('clear-data'), getVersion: call('app-version'), checkUpdates: call('check-updates'),
   dlHistory: call('dl-history'), adCount: call('adblock-count'), permList: call('perm-list'),
-  vpnGet: call('vpn-get'), vpnSave: call('vpn-save'), vpnToggle: call('vpn-toggle'),
+  vpnGet: call('vpn-get'), vpnSelect: call('vpn-select'), vpnToggle: call('vpn-toggle'), vpnPing: call('vpn-ping'), vpnRefresh: call('vpn-refresh'),
+  sessionSave: send('session-save'), sessionClear: send('session-clear'), sessionLoad: call('session-load'),
+  sessionSaveSync: (d) => ipcRenderer.sendSync('session-save-sync', d), memUsage: call('mem-usage'),
+  homeGet: call('home-get'), stickerAdd: call('sticker-add'), stickerRemove: call('sticker-remove'), wallSet: call('wall-set'), wallDim: send('wall-dim'),
+  fontAdd: call('font-add'), fontsList: call('fonts-list'), fontData: call('font-data'), fontRemove: call('font-remove'), fontSet: send('font-set'),
 });

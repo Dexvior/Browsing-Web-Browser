@@ -15,7 +15,8 @@
   --border: #262626;
   --hover: #141414;
   --press: #1f1f1f;
-  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.34, 1.45, 0.5, 1);
   color-scheme: dark;
 }
 :root[data-theme='light'] {
@@ -36,5 +37,5 @@
   }
 }
 
-* { box-sizing: border-box; font-family: 'Urbanist', sans-serif; }
-button, input { font-family: 'Urbanist', sans-serif; font-size: inherit; color: inherit; }
+* { box-sizing: border-box; font-family: var(--font, 'Urbanist'), sans-serif; }
+button, input { font-family: var(--font, 'Urbanist'), sans-serif; font-size: inherit; color: inherit; }

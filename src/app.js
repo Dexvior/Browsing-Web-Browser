@@ -7,7 +7,7 @@ const CLOSE_ICON = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></s
 
 const $ = (id) => document.getElementById(id);
 const tabsEl = $('tabs'), indicator = $('indicator'), stage = $('stage'), urlInput = $('url');
-const lock = $('lock'), backBtn = $('back'), fwdBtn = $('forward'), reloadBtn = $('reload'), progress = $('progress'), menu = $('menu');
+const lock = $('lock'), starBtn = $('starBtn'), backBtn = $('back'), fwdBtn = $('forward'), reloadBtn = $('reload'), progress = $('progress'), menu = $('menu');
 
 let tabs = [], activeId = null, seq = 0;
 const active = () => tabs.find((t) => t.id === activeId);
@@ -26,45 +26,25 @@ function resolveInput(raw) {
 const isVertical = () => { const d = document.getElementById('app').dataset.dock; return d === 'left' || d === 'right'; };
 let dragId = null;
 
-function newTab(url = newtabUrl(), focusBar = url.startsWith(NEWTAB_BASE), opts = {}) {
-  const id = ++seq;
-  const el = document.createElement('div');
-  el.className = 'tab';
-  el.draggable = true;
-  el.innerHTML = '<span class="tab-ico"><i class="spin"></i><img alt=""></span><span class="tab-title">New Tab</span><button class="tab-close" aria-label="Close tab">' + CLOSE_ICON + '</button>';
-  const img = el.querySelector('img');
-  img.onerror = () => el.classList.remove('has-ico');
+function mountWebview(t, url) {
+  const el = t.el, img = el.querySelector('img');
   const wv = document.createElement('webview');
   wv.setAttribute('partition', 'persist:browsing');
   wv.setAttribute('allowpopups', '');
   wv.setAttribute('src', url);
-
-  const t = { id, el, wv, title: 'New Tab', url, failed: null, loading: false, zoom: 0 };
-  let at = tabs.length;
-  if (opts.afterActive) { const i = tabs.findIndex((x) => x.id === activeId); if (i >= 0) at = i + 1; }
-  tabs.splice(at, 0, t);
-  tabsEl.insertBefore(el, tabs[at + 1] ? tabs[at + 1].el : indicator);
+  t.wv = wv; t.sleeping = false;
   stage.appendChild(wv);
-  el.classList.add('entering');
-  el.addEventListener('animationend', (e) => { if (e.target === el) el.classList.remove('entering'); });
-  moveIndicator();
-
-  el.addEventListener('click', () => activate(id));
-  el.addEventListener('auxclick', (e) => { if (e.button === 1) closeTab(id); });
-  el.querySelector('.tab-close').addEventListener('click', (e) => { e.stopPropagation(); closeTab(id); });
-  el.addEventListener('dragstart', (e) => { dragId = id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(id)); el.classList.add('dragging'); });
-  el.addEventListener('dragend', () => { dragId = null; el.classList.remove('dragging'); });
-  el.addEventListener('dragover', (e) => {
-    if (dragId == null || dragId === id) return;
-    e.preventDefault();
-    const r = el.getBoundingClientRect();
-    moveTab(dragId, id, isVertical() ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2);
-  });
+  wv.classList.toggle('active', t.id === activeId);
 
   wv.addEventListener('did-start-loading', () => { t.loading = true; sync(); });
   wv.addEventListener('did-stop-loading', () => { t.loading = false; el.classList.remove('loading'); sync(); });
-  wv.addEventListener('did-start-navigation', (e) => { if (e.isMainFrame && !e.isInPage) { el.classList.remove('has-ico'); el.classList.toggle('loading', !e.url.startsWith(INTERNAL)); } });
-  wv.addEventListener('dom-ready', () => { if (t.zoom) { try { wv.setZoomLevel(t.zoom); } catch {} } });
+  wv.addEventListener('did-start-navigation', (e) => {
+    if (e.isMainFrame && !e.isInPage) { el.classList.remove('has-ico'); el.classList.toggle('loading', !e.url.startsWith(INTERNAL)); }
+  });
+  wv.addEventListener('dom-ready', () => {
+    if (t.zoom) { try { wv.setZoomLevel(t.zoom); } catch {} }
+    if (t.muted) { try { wv.setAudioMuted(true); } catch {} }
+  });
   wv.addEventListener('page-title-updated', (e) => { t.title = e.title; renderTitle(t); retitle(t.url, e.title); });
   wv.addEventListener('page-favicon-updated', (e) => { const f = e.favicons && e.favicons[0]; if (f) { img.src = f; el.classList.add('has-ico'); } });
   wv.addEventListener('did-navigate', (e) => {
@@ -84,29 +64,92 @@ function newTab(url = newtabUrl(), focusBar = url.startsWith(NEWTAB_BASE), opts 
   wv.addEventListener('found-in-page', (e) => {
     if (t.id === activeId && e.result.finalUpdate) findCnt.textContent = e.result.matches ? e.result.activeMatchOrdinal + ' / ' + e.result.matches : 'No results';
   });
+  wv.addEventListener('media-started-playing', () => { t.audible = true; el.classList.add('audible'); });
+  wv.addEventListener('media-paused', () => { t.audible = false; el.classList.remove('audible'); });
+  wv.addEventListener('enter-html-full-screen', () => document.body.classList.add('fs'));
+  wv.addEventListener('leave-html-full-screen', () => document.body.classList.remove('fs'));
+  return wv;
+}
 
+function newTab(url = newtabUrl(), focusBar = url.startsWith(NEWTAB_BASE), opts = {}) {
+  const id = ++seq;
+  const el = document.createElement('div');
+  el.className = 'tab';
+  el.draggable = true;
+  el.innerHTML = '<span class="tab-ico"><i class="spin"></i><img alt=""></span><span class="tab-title">New Tab</span>' +
+    '<button class="tab-aud" aria-label="Mute tab"><svg viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path class="w" d="M15.5 9a4 4 0 0 1 0 6"/><path class="x" d="M16 9.5l5 5M21 9.5l-5 5"/></svg></button>' +
+    '<button class="tab-close" aria-label="Close tab">' + CLOSE_ICON + '</button>';
+  el.querySelector('img').onerror = () => el.classList.remove('has-ico');
+
+  const t = { id, el, wv: null, title: 'New Tab', url, failed: null, loading: false, zoom: 0, pinned: false, audible: false, muted: false, sleeping: false, lastActive: Date.now() };
+  let at = tabs.length;
+  if (opts.afterActive) { const i = tabs.findIndex((x) => x.id === activeId); if (i >= 0) at = i + 1; }
+  if (opts.afterId) { const i = tabs.findIndex((x) => x.id === opts.afterId); if (i >= 0) at = i + 1; }
+  tabs.splice(at, 0, t);
+  tabsEl.insertBefore(el, tabs[at + 1] ? tabs[at + 1].el : indicator);
+  el.classList.add('entering');
+  el.addEventListener('animationend', (e) => { if (e.target === el) { el.classList.remove('entering'); el.style.animation = 'none'; } });
+  moveIndicator();
+
+  el.addEventListener('click', () => activate(id));
+  el.addEventListener('auxclick', (e) => { if (e.button === 1) closeTab(id); });
+  el.addEventListener('contextmenu', (e) => { e.preventDefault(); showCtx(e.clientX, e.clientY, tabMenu(t)); });
+  el.querySelector('.tab-close').addEventListener('click', (e) => { e.stopPropagation(); closeTab(id); });
+  el.querySelector('.tab-aud').addEventListener('click', (e) => { e.stopPropagation(); toggleMute(t); });
+  el.addEventListener('dragstart', (e) => { dragId = id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(id)); el.classList.add('dragging'); });
+  el.addEventListener('dragend', () => { dragId = null; el.classList.remove('dragging'); });
+  el.addEventListener('dragover', (e) => {
+    if (dragId == null || dragId === id) return;
+    e.preventDefault();
+    const r = el.getBoundingClientRect();
+    moveTab(dragId, id, isVertical() ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2);
+  });
+
+  mountWebview(t, url);
   activate(id);
   if (focusBar) urlInput.focus();
   saveSession();
   return t;
 }
 
+/* smooth reorder: remember where every tab was, move them, then slide each one from its old spot (FLIP) */
+function flip(fn) {
+  const before = new Map(tabs.map((t) => [t, t.el.getBoundingClientRect()]));
+  fn();
+  if (prefs.motion === 'off') return;
+  tabs.forEach((t) => {
+    const a = before.get(t), b = t.el.getBoundingClientRect();
+    if (!a) return;
+    const dx = a.left - b.left, dy = a.top - b.top;
+    if (Math.abs(dx) + Math.abs(dy) < 1) return;
+    t.el.animate([{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+  });
+}
+
 function moveTab(from, to, after) {
   const a = tabs.findIndex((t) => t.id === from);
   if (a < 0 || !tabs.some((t) => t.id === to)) return;
-  const [t] = tabs.splice(a, 1);
-  const i = tabs.findIndex((x) => x.id === to) + (after ? 1 : 0);
-  tabs.splice(i, 0, t);
-  tabsEl.insertBefore(t.el, tabs[i + 1] ? tabs[i + 1].el : indicator);
+  const cur = tabs[a];
+  const without = tabs.filter((t) => t !== cur);
+  const i = without.findIndex((x) => x.id === to) + (after ? 1 : 0);
+  if (tabs.indexOf(cur) === i) return;
+  flip(() => {
+    tabs.splice(a, 1);
+    tabs.splice(i, 0, cur);
+    tabsEl.insertBefore(cur.el, tabs[i + 1] ? tabs[i + 1].el : indicator);
+  });
   moveIndicator(); saveSession();
 }
 
 function activate(id) {
   activeId = id;
+  const cur = tabs.find((t) => t.id === id);
+  if (cur) { cur.lastActive = Date.now(); if (cur.sleeping) wakeTab(cur); }
   tabs.forEach((t) => {
     t.el.classList.toggle('active', t.id === id);
-    t.wv.classList.toggle('active', t.id === id);
+    if (t.wv) t.wv.classList.toggle('active', t.id === id);
   });
+  if (cur && cur.wv) { cur.wv.classList.remove('swap'); void cur.wv.offsetWidth; cur.wv.classList.add('swap'); }
   sync();
   moveIndicator();
   saveSession();
@@ -119,17 +162,17 @@ function closeTab(id) {
   const i = tabs.findIndex((t) => t.id === id);
   if (i < 0) return;
   const t0 = tabs[i];
-  if (prefs.saveTabs && (t0.failed || !t0.url.startsWith(INTERNAL))) { closed.push(t0.failed || t0.url); if (closed.length > 15) closed.shift(); }
-  if (tabs.length === 1) { window.close(); return; }
+  if (prefs.saveTabs && (t0.failed || !t0.url.startsWith(INTERNAL))) { closed.push({ u: t0.failed || (t0.sleeping ? t0.sleepUrl : t0.url), t: t0.title, ts: Date.now() }); if (closed.length > 20) closed.shift(); }
+  if (tabs.length === 1) { saveSession(true); window.close(); return; }
   const [t] = tabs.splice(i, 1);
   if (id === activeId) activate(tabs[Math.min(i, tabs.length - 1)].id);
   t.el.style.setProperty('--tw', t.el.querySelector('.tab-title').offsetWidth + 'px');
   t.el.classList.add('closing');
   moveIndicator();
-  setTimeout(() => { t.el.remove(); t.wv.remove(); moveIndicator(); }, 230);
+  setTimeout(() => { t.el.remove(); if (t.wv) t.wv.remove(); moveIndicator(); }, 230);
   saveSession();
 }
-function reopenTab() { const u = closed.pop(); if (u) newTab(u, false); }
+function reopenTab() { const c = closed.pop(); if (c) newTab(c.u, true); saveSession(); }
 
 function cycle(dir) {
   const i = tabs.findIndex((t) => t.id === activeId);
@@ -180,6 +223,7 @@ function sync() {
   progress.classList.toggle('on', busy);
   reloadBtn.classList.toggle('loading', busy);
   renderTitle(t);
+  updateStar();
 }
 
 function navigate(input) {
@@ -252,6 +296,8 @@ window.browsing.onShortcut((name) => {
     forward: goForward,
     settings: () => openSettings(true),
     'reopen-tab': reopenTab,
+    bookmark: toggleBookmark,
+    privacy: () => openPriv(true),
     history: () => openHist(true),
     find: () => openFind(true),
     'zoom-in': () => zoom(1),
@@ -328,16 +374,17 @@ const ENGINES = {
   brave: ['Brave', 'https://search.brave.com/search?q='],
 };
 const SWATCHES = ['#0b3d91', '#5b21b6', '#0f766e', '#15803d', '#b91c1c', '#b45309'];
-const DEFAULTS = { theme: 'dark', color: '#14213d', color2: '#6d28d9', style: 'solid', engine: 'duckduckgo', density: 'normal', motion: 'on', startup: 'new', saveTabs: true, saveHist: true, saveDl: true, adblock: true, vpnAuto: false };
+const DEFAULTS = { theme: 'dark', color: '#14213d', color2: '#6d28d9', style: 'solid', engine: 'duckduckgo', density: 'normal', motion: 'full', startup: 'restore', saveTabs: true, saveHist: true, saveDl: true, adblock: true, vpnAuto: false, sleep: '15', font: 'Urbanist', v: 2 };
 let prefs = { ...DEFAULTS };
 const isHex = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 
 function loadPrefs() {
   try {
     const p = JSON.parse(localStorage.getItem('prefs') || 'null');
-    if (p) prefs = { ...DEFAULTS, ...p };
+    if (p) { prefs = { ...DEFAULTS, ...p }; if ((p.v || 1) < 2) { prefs.startup = 'restore'; prefs.v = 2; } }
     else if (localStorage.getItem('theme') === 'light') prefs.theme = 'light';
   } catch {}
+  if (prefs.motion === 'on') prefs.motion = 'full';
   if (!isHex(prefs.color)) prefs.color = DEFAULTS.color;
   if (!isHex(prefs.color2)) prefs.color2 = DEFAULTS.color2;
   if (!ENGINES[prefs.engine]) prefs.engine = 'duckduckgo';
@@ -380,15 +427,15 @@ function applyPrefs() {
   urlInput.placeholder = 'Search with ' + name + ' or enter an address';
   r.dataset.density = prefs.density; r.dataset.motion = prefs.motion;
   markSeg($('themeSeg'), prefs.theme); markSeg($('styleSeg'), prefs.style);
-  markSeg($('engSeg'), prefs.engine); markSeg($('densSeg'), prefs.density); markSeg($('startSeg'), prefs.startup);
+  markSeg($('engSeg'), prefs.engine); markSeg($('densSeg'), prefs.density); markSeg($('startSeg'), prefs.startup); markSeg($('motionSeg'), prefs.motion); markSeg($('sleepSeg'), String(prefs.sleep));
   $('customBox').hidden = prefs.theme !== 'custom';
   $('row2').hidden = prefs.style !== 'gradient';
   $('c1').value = prefs.color; $('c2').value = prefs.color2;
-  $('swMotion').setAttribute('aria-checked', String(prefs.motion === 'off'));
   document.querySelectorAll('#swatches button').forEach((b) => b.classList.toggle('on', b.dataset.c === prefs.color));
   $('preview').style.background = prefs.style === 'gradient' ? 'linear-gradient(135deg, ' + prefs.color + ', ' + prefs.color2 + ')' : prefs.color;
   document.querySelectorAll('.sw[data-pref]').forEach((b) => b.setAttribute('aria-checked', String(!!prefs[b.dataset.pref])));
-  window.browsing.setFlags({ adblock: prefs.adblock, saveDl: prefs.saveDl, vpnAuto: prefs.vpnAuto });
+  window.browsing.setFlags({ adblock: prefs.adblock, saveDl: prefs.saveDl, vpnAuto: prefs.vpnAuto, saveTabs: prefs.saveTabs });
+  renderFonts(); applyFont();
   moveIndicator();
 }
 function applyAll() { applyAppearance(); applyPrefs(); }
@@ -400,7 +447,6 @@ $('c1').oninput = (e) => change('color', e.target.value);
 $('c2').oninput = (e) => change('color2', e.target.value);
 document.querySelectorAll('.seg[data-pref]').forEach((seg) =>
   seg.querySelectorAll('button').forEach((b) => (b.onclick = () => change(seg.dataset.pref, b.dataset.value))));
-$('swMotion').onclick = () => change('motion', prefs.motion === 'off' ? 'on' : 'off');
 $('sClear').onclick = async () => { await window.browsing.clearData(); reload(); };
 $('sReset').onclick = () => { prefs = { ...DEFAULTS }; savePrefs(); applyDock('top'); applyAll(); };
 
@@ -409,7 +455,7 @@ function openSettings(open) {
   toggleMenu(false);
   sEl.classList.toggle('on', open);
   sEl.setAttribute('aria-hidden', String(!open));
-  if (open) { openHist(false); openSite(false); $('sClose').focus(); refreshExtras(); }
+  if (open) { openHist(false); openSite(false); openPriv(false); $('sClose').focus(); refreshHome(); startMem(); } else stopMem();
 }
 $('settingsBtn').onclick = (e) => { e.stopPropagation(); openSettings(true); };
 $('mSettings').onclick = () => openSettings(true);
@@ -421,7 +467,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') openSettin
 let lastPt = { x: innerWidth - 80, y: 24 };
 document.addEventListener('pointerdown', (e) => { lastPt = { x: e.clientX, y: e.clientY }; }, true);
 function fx(fn) {
-  if (!document.startViewTransition || prefs.motion === 'off') return fn();
+  if (!document.startViewTransition || prefs.motion !== 'full') return fn();
   const { x, y } = lastPt;
   const tr = document.startViewTransition(fn);
   tr.ready.then(() => {
@@ -548,21 +594,27 @@ $('sUpd').onclick = async () => {
 };
 window.browsing.onSearchText((q) => newTab(SEARCH + encodeURIComponent(q), false, { afterActive: true }));
 
-/* ---------- Session restore ---------- */
+/* ---------- Session: tabs are saved by the main process so they survive any way of closing ---------- */
 let sesTimer = 0;
-function saveSession() {
-  clearTimeout(sesTimer);
-  sesTimer = setTimeout(() => {
-    if (!prefs.saveTabs) { try { localStorage.removeItem('session'); } catch {} return; }
-    const urls = tabs.map((t) => t.failed || (t.url.startsWith(INTERNAL) ? '' : t.url));
-    try { localStorage.setItem('session', JSON.stringify({ urls, active: tabs.findIndex((t) => t.id === activeId) })); } catch {}
-  }, 400);
+function sessionData() {
+  return {
+    urls: tabs.slice(0, 40).map((t) => { const u = t.failed || (t.sleeping ? t.sleepUrl : t.url) || ''; return { u: u.startsWith(INTERNAL) ? '' : u, p: !!t.pinned }; }),
+    active: tabs.findIndex((t) => t.id === activeId),
+    closed: closed.slice(-20),
+  };
 }
-function restoreSession() {
+function saveSession(now) {
+  clearTimeout(sesTimer);
+  const run = () => { if (!prefs.saveTabs) window.browsing.sessionClear(); else window.browsing.sessionSave(sessionData()); };
+  if (now) run(); else sesTimer = setTimeout(run, 300);
+}
+window.addEventListener('beforeunload', () => { if (prefs.saveTabs && tabs.length) window.browsing.sessionSaveSync(sessionData()); });
+async function restoreSession() {
   let s = null;
-  if (prefs.startup === 'restore' && prefs.saveTabs) { try { s = JSON.parse(localStorage.getItem('session') || 'null'); } catch {} }
-  if (s && Array.isArray(s.urls) && s.urls.length) {
-    s.urls.slice(0, 30).forEach((u) => newTab(typeof u === 'string' && u ? u : newtabUrl(), false));
+  if (prefs.saveTabs) { try { s = await window.browsing.sessionLoad(); } catch {} }
+  if (s && Array.isArray(s.closed)) s.closed.forEach((c) => closed.push(c));
+  if (prefs.startup === 'restore' && s && Array.isArray(s.urls) && s.urls.length) {
+    s.urls.slice(0, 40).forEach((x) => { const t = newTab(x.u || newtabUrl(), false); if (x.p) setPinned(t, true); });
     const a = tabs[s.active];
     if (a) activate(a.id);
   } else newTab();
@@ -776,39 +828,50 @@ const dayLabel = (ts) => {
   if (d.toDateString() === y.toDateString()) return 'Yesterday';
   return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 };
+function histSource() { return hTab === 'pages' ? bh : hTab === 'searches' ? sh : hTab === 'closed' ? closed.slice().reverse() : bm; }
 function renderHist() {
   markSeg($('hTabs'), hTab);
   const q = hq.value.trim().toLowerCase();
   hList.textContent = '';
-  const items = (hTab === 'pages' ? bh : sh).filter((x) => !q || (hTab === 'pages' ? x.u + ' ' + x.t : x.q).toLowerCase().includes(q)).slice(0, 300);
+  const text = (x) => (hTab === 'searches' ? x.q : (x.u || '') + ' ' + (x.t || ''));
+  const items = histSource().filter((x) => !q || text(x).toLowerCase().includes(q)).slice(0, 300);
   if (!items.length) {
     const e = document.createElement('div'); e.className = 'h-empty';
-    e.textContent = !prefs.saveHist && !(hTab === 'pages' ? bh : sh).length ? 'History is off' : 'Nothing here';
+    e.textContent = hTab === 'bookmarks' ? 'No bookmarks yet. Press Ctrl+D on a page.' : hTab === 'closed' ? 'No recently closed tabs' : !prefs.saveHist ? 'History is off' : 'Nothing here';
     hList.appendChild(e); return;
   }
   let day = '';
   items.forEach((x) => {
-    const dl = dayLabel(x.ts);
+    const dl = x.ts ? dayLabel(x.ts) : 'Earlier';
     if (dl !== day) { day = dl; const h = document.createElement('div'); h.className = 'h-day'; h.textContent = dl; hList.appendChild(h); }
     const row = document.createElement('div'), t = document.createElement('div'), b = document.createElement('b'), sp = document.createElement('span'), tm = document.createElement('div');
     row.className = 'h-row'; t.className = 'h-t'; tm.className = 'h-time';
-    if (hTab === 'pages') {
-      let host = x.u; try { host = new URL(x.u).hostname; } catch {}
-      b.textContent = x.t || host; sp.textContent = host; row.title = x.u;
-    } else { b.textContent = x.q; sp.textContent = 'Searched with ' + (x.e || 'search'); }
-    tm.textContent = new Date(x.ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    if (hTab === 'searches') { b.textContent = x.q; sp.textContent = 'Searched with ' + (x.e || 'search'); }
+    else { let host = x.u; try { host = new URL(x.u).hostname; } catch {} b.textContent = x.t || host; sp.textContent = host; row.title = x.u; }
+    tm.textContent = x.ts ? new Date(x.ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
     t.append(b, sp);
-    const rm = document.createElement('button'); rm.className = 'icon-btn'; rm.setAttribute('aria-label', 'Remove from history');
+    const rm = document.createElement('button'); rm.className = 'icon-btn'; rm.setAttribute('aria-label', 'Remove');
     rm.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-    rm.onclick = (e) => { e.stopPropagation(); (hTab === 'pages' ? bh : sh).splice((hTab === 'pages' ? bh : sh).indexOf(x), 1); saveBh(); renderHist(); };
-    row.onclick = () => { openHist(false); navigate(hTab === 'pages' ? x.u : x.q); };
+    rm.onclick = (e) => {
+      e.stopPropagation();
+      const arr = hTab === 'pages' ? bh : hTab === 'searches' ? sh : hTab === 'closed' ? closed : bm;
+      arr.splice(arr.indexOf(x), 1);
+      if (hTab === 'bookmarks') saveBm(); else if (hTab === 'closed') saveSession(); else saveBh();
+      renderHist(); updateStar();
+    };
+    row.onclick = () => {
+      openHist(false);
+      if (hTab === 'searches') navigate(x.q);
+      else if (hTab === 'closed') { closed.splice(closed.indexOf(x), 1); newTab(x.u, true); saveSession(); }
+      else navigate(x.u);
+    };
     row.append(t, tm, rm); hList.appendChild(row);
   });
 }
 function openHist(on) {
   hp.classList.toggle('on', on);
   hp.setAttribute('aria-hidden', String(!on));
-  if (on) { toggleMenu(false); openDl(false); openSite(false); sEl.classList.remove('on'); renderHist(); hq.focus(); }
+  if (on) { toggleMenu(false); openDl(false); openSite(false); privP.classList.remove('on'); sEl.classList.remove('on'); renderHist(); hq.focus(); }
 }
 $('hTabs').querySelectorAll('button').forEach((b) => (b.onclick = () => { hTab = b.dataset.value; renderHist(); }));
 hq.addEventListener('input', renderHist);
@@ -818,50 +881,96 @@ $('hClear').onclick = (e) => {
   const b = e.currentTarget;
   if (!hArm) { b.textContent = 'Click again to confirm'; hArm = setTimeout(() => { hArm = 0; b.textContent = 'Clear all'; }, 3000); return; }
   clearTimeout(hArm); hArm = 0; b.textContent = 'Clear all';
-  clearHistory(); renderHist(); toast('History cleared');
+  clearTab(); renderHist(); toast('Cleared');
 };
 $('mHistory').onclick = () => openHist(true);
 $('sHistView').onclick = () => openHist(true);
 $('sHistClear').onclick = () => { clearHistory(); toast('History cleared'); };
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { openHist(false); openSite(false); } });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { openHist(false); openSite(false); openPriv(false); hideCtx(); } });
 
 /* ---------- Privacy toggles ---------- */
 document.querySelectorAll('.sw[data-pref]').forEach((b) => (b.onclick = () => change(b.dataset.pref, !prefs[b.dataset.pref])));
 
-/* ---------- Built-in VPN ---------- */
-const vpnBtn = $('vpnBtn');
-let vpnSt = { state: 'off', message: '', server: '' };
+/* ---------- Privacy and VPN panel ---------- */
+const vpnBtn = $('vpnBtn'), privP = $('privPanel'), vpnSw = $('vpnSw');
+let vpnSt = { state: 'off', message: '', label: '' }, vpnPings = {};
+let vpnInfo = { sel: 'auto', custom: '', servers: [], user: '', hasPass: false };
 function renderVpn() {
   const st = vpnSt.state;
   vpnBtn.classList.toggle('on', st === 'on'); vpnBtn.classList.toggle('busy', st === 'connecting'); vpnBtn.classList.toggle('err', st === 'error');
   vpnBtn.setAttribute('aria-pressed', String(st === 'on'));
-  vpnBtn.title = st === 'on' ? 'VPN on - ' + vpnSt.server + ' (click to disconnect)' : st === 'connecting' ? 'VPN connecting...' : st === 'error' ? 'VPN error - ' + vpnSt.message : 'VPN off - click to connect';
-  $('vpnMsg').textContent = st === 'on' ? 'Connected through ' + vpnSt.server : st === 'connecting' ? 'Connecting...' : st === 'error' ? vpnSt.message : 'Off';
-  $('vpnGo').textContent = st === 'on' ? 'Disconnect' : 'Connect';
+  vpnBtn.title = st === 'on' ? 'VPN on - ' + vpnSt.label + ' (click to disconnect, right-click for options)' : st === 'connecting' ? 'VPN connecting...' : st === 'error' ? 'VPN error - ' + vpnSt.message : 'VPN off - click to connect (right-click for options)';
+  vpnSw.setAttribute('aria-checked', String(st === 'on'));
+  $('vpnTitle').textContent = st === 'on' ? 'VPN is on' : st === 'connecting' ? 'Connecting...' : 'VPN is off';
+  $('vpnMsg').textContent = st === 'on' ? 'Connected through ' + vpnSt.label : st === 'error' ? vpnSt.message : st === 'connecting' ? 'Please wait' : 'Your traffic is not routed through a VPN';
 }
-function fillVpn(r) {
-  $('vpnServer').value = r.server || ''; $('vpnUser').value = r.user || '';
-  $('vpnPass').placeholder = r.hasPass ? 'Password saved (leave blank to keep)' : 'Password (optional)';
+function renderServers() {
+  const box = $('vpnList'), servers = vpnInfo.servers || [];
+  box.textContent = '';
+  const rows = [{ id: 'auto', cc: 'AUTO', name: 'Auto (fastest)', sub: 'Connects to the quickest available server' },
+    ...servers.map((s) => ({ id: s.id, cc: s.country || '--', name: s.name, sub: s.city || s.server })),
+    { id: 'custom', cc: '+', name: 'Custom server', sub: 'Use your own SOCKS5 or HTTP proxy' }];
+  rows.forEach((r) => {
+    const b = document.createElement('button'), rad = document.createElement('span'), cc = document.createElement('span');
+    const vt = document.createElement('span'), nm = document.createElement('b'), sb = document.createElement('span'), ms = document.createElement('span');
+    b.className = 'vitem' + (vpnInfo.sel === r.id ? ' on' : ''); rad.className = 'rad'; cc.className = 'cc'; vt.className = 'vt'; ms.className = 'ms';
+    cc.textContent = r.cc; nm.textContent = r.name; sb.textContent = r.sub;
+    if (r.id !== 'auto' && r.id !== 'custom' && r.id in vpnPings) ms.textContent = vpnPings[r.id] == null ? 'Offline' : vpnPings[r.id] + ' ms';
+    vt.append(nm, sb); b.append(rad, cc, vt, ms);
+    b.onclick = () => selectServer(r.id);
+    box.appendChild(b);
+  });
+  if (!servers.some((s) => !s.id.startsWith('tor-'))) {
+    const n = document.createElement('div'); n.className = 'vnote';
+    n.textContent = 'No servers have been published yet. The Tor entries work when Tor is running on this PC. You can also use your own server.';
+    box.appendChild(n);
+  }
+  const sel = servers.find((s) => s.id === vpnInfo.sel);
+  $('vpnCreds').hidden = !(vpnInfo.sel === 'custom' || (sel && sel.login));
+  $('vpnCustom').hidden = vpnInfo.sel !== 'custom';
 }
-function refreshVpn() { return window.browsing.vpnGet().then((r) => { vpnSt = r; fillVpn(r); renderVpn(); }); }
-async function vpnToggle() {
-  if (vpnSt.state === 'connecting') return;
-  if (vpnSt.state !== 'on' && !vpnSt.server) { openSettings(true); toast('Add a server to use the VPN'); setTimeout(() => $('vpnServer').focus(), 350); return; }
-  vpnSt = { ...vpnSt, state: vpnSt.state === 'on' ? 'off' : 'connecting' }; renderVpn();
-  vpnSt = await window.browsing.vpnToggle(vpnSt.state !== 'off'); renderVpn();
+function refreshVpn() {
+  return window.browsing.vpnGet().then((r) => {
+    vpnInfo = r; vpnSt = { state: r.state, message: r.message, label: r.label };
+    $('vpnCustom').value = r.custom || ''; $('vpnUser').value = r.user || '';
+    $('vpnPass').placeholder = r.hasPass ? 'Password saved (leave blank to keep)' : 'Password';
+    renderServers(); renderVpn();
+  });
 }
-window.browsing.onVpn((st) => { vpnSt = { ...vpnSt, ...st }; renderVpn(); });
-vpnBtn.onclick = vpnToggle;
-$('vpnGo').onclick = vpnToggle;
-$('vpnSave').onclick = async () => {
-  const r = await window.browsing.vpnSave({ server: $('vpnServer').value, user: $('vpnUser').value, pass: $('vpnPass').value || null });
-  if (!r.ok) { $('vpnMsg').textContent = r.error; return; }
-  $('vpnPass').value = ''; toast('VPN settings saved'); refreshVpn();
-};
-function refreshExtras() {
-  window.browsing.adCount().then((n) => { $('abCount').textContent = n.toLocaleString() + ' blocked this session'; });
+async function selectServer(id) {
+  vpnInfo.sel = id; renderServers();
+  await window.browsing.vpnSelect({ sel: id, custom: $('vpnCustom').value });
   refreshVpn();
 }
+const vpnUsable = () => (vpnInfo.sel === 'custom' ? !!vpnInfo.custom : vpnInfo.sel === 'auto' ? (vpnInfo.servers || []).some((s) => !s.id.startsWith('tor-')) : true);
+async function vpnToggle() {
+  if (vpnSt.state === 'connecting') return;
+  const on = vpnSt.state !== 'on';
+  vpnSt = { ...vpnSt, state: on ? 'connecting' : 'off' }; renderVpn();
+  vpnSt = await window.browsing.vpnToggle(on); renderVpn();
+}
+function openPriv(on) {
+  privP.classList.toggle('on', on);
+  privP.setAttribute('aria-hidden', String(!on));
+  if (!on) return;
+  toggleMenu(false); openDl(false); openSite(false); openHist(false); sEl.classList.remove('on'); stopMem();
+  refreshVpn();
+  window.browsing.adCount().then((n) => { $('abCount').textContent = n.toLocaleString() + ' blocked this session'; });
+  window.browsing.vpnRefresh().then((l) => { vpnInfo.servers = l; renderServers(); return window.browsing.vpnPing(); }).then((p) => { vpnPings = p; renderServers(); }).catch(() => {});
+}
+window.browsing.onVpn((st) => { vpnSt = st; renderVpn(); });
+vpnBtn.onclick = () => { if (vpnSt.state !== 'on' && !vpnUsable()) openPriv(true); else vpnToggle(); };
+vpnBtn.oncontextmenu = (e) => { e.preventDefault(); openPriv(true); };
+vpnSw.onclick = vpnToggle;
+$('vpnSave').onclick = async () => {
+  const r = await window.browsing.vpnSelect({ sel: vpnInfo.sel, custom: $('vpnCustom').value, user: $('vpnUser').value, pass: $('vpnPass').value || null });
+  if (!r.ok) { toast(r.error); return; }
+  $('vpnPass').value = ''; toast('Saved'); refreshVpn();
+};
+$('pvClose').onclick = () => openPriv(false);
+privP.addEventListener('click', (e) => { if (e.target === privP) openPriv(false); });
+$('mPriv').onclick = () => openPriv(true);
+$('sOpenPriv').onclick = () => { openSettings(false); openPriv(true); };
 refreshVpn();
 
 /* ---------- Site information and permissions ---------- */
@@ -900,6 +1009,186 @@ $('lock').onclick = (e) => { e.stopPropagation(); openSite(!siteP.classList.cont
 siteP.addEventListener('click', (e) => e.stopPropagation());
 document.addEventListener('click', () => openSite(false));
 $('spReset').onclick = () => { window.browsing.permForget(spOrigin); openSite(false); toast('Permissions reset for this site'); };
+
+/* ---------- Bookmarks ---------- */
+let bm = [];
+try { bm = JSON.parse(localStorage.getItem('bm') || '[]'); } catch {}
+const saveBm = () => { try { localStorage.setItem('bm', JSON.stringify(bm.slice(0, 500))); } catch {} };
+const curUrl = () => { const t = active(); return t ? t.failed || t.url : ''; };
+function updateStar() {
+  const u = curUrl(), ok = /^https?:/.test(u);
+  starBtn.hidden = !ok;
+  starBtn.classList.toggle('on', ok && bm.some((b) => b.u === u));
+}
+function toggleBookmark() {
+  const t = active(), u = curUrl();
+  if (!t || !/^https?:/.test(u)) return;
+  const i = bm.findIndex((b) => b.u === u);
+  if (i >= 0) { bm.splice(i, 1); toast('Bookmark removed'); } else { bm.unshift({ u, t: t.title, ts: Date.now() }); toast('Bookmarked'); }
+  saveBm(); updateStar();
+}
+starBtn.onclick = toggleBookmark;
+$('mBookmark').onclick = () => { toggleMenu(false); toggleBookmark(); };
+function clearTab() {
+  if (hTab === 'closed') { closed.length = 0; saveSession(); }
+  else if (hTab === 'bookmarks') { bm = []; saveBm(); updateStar(); }
+  else clearHistory();
+}
+
+/* ---------- Tab menu, mute, pin, sleep ---------- */
+const ctxEl = $('ctx');
+function showCtx(x, y, items) {
+  ctxEl.textContent = '';
+  items.forEach((it) => {
+    if (it === '-') { const d = document.createElement('div'); d.className = 'sep'; ctxEl.appendChild(d); return; }
+    const b = document.createElement('button');
+    b.className = 'menu-item'; b.textContent = it.label; b.disabled = !!it.off;
+    b.onclick = () => { hideCtx(); it.run(); };
+    ctxEl.appendChild(b);
+  });
+  ctxEl.style.left = '0px'; ctxEl.style.top = '0px';
+  const w = ctxEl.offsetWidth, h = ctxEl.offsetHeight;
+  ctxEl.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) + 'px';
+  ctxEl.style.top = Math.max(4, Math.min(y, innerHeight - h - 4)) + 'px';
+  ctxEl.classList.add('on');
+}
+function hideCtx() { ctxEl.classList.remove('on'); }
+document.addEventListener('click', hideCtx);
+window.addEventListener('blur', hideCtx);
+function tabMenu(t) {
+  const others = tabs.filter((x) => x !== t), idx = tabs.indexOf(t);
+  return [
+    { label: 'Reload', run: () => { activate(t.id); reload(); } },
+    { label: 'Duplicate', run: () => newTab(t.failed || (t.sleeping ? t.sleepUrl : t.url), false, { afterId: t.id }) },
+    { label: t.pinned ? 'Unpin tab' : 'Pin tab', run: () => setPinned(t, !t.pinned) },
+    { label: t.muted ? 'Unmute site' : 'Mute site', off: !(t.audible || t.muted), run: () => toggleMute(t) },
+    '-',
+    { label: 'Close', run: () => closeTab(t.id) },
+    { label: 'Close other tabs', off: !others.length, run: () => { others.forEach((x) => closeTab(x.id)); activate(t.id); } },
+    { label: 'Close tabs to the right', off: idx >= tabs.length - 1, run: () => { tabs.slice(idx + 1).forEach((x) => closeTab(x.id)); activate(t.id); } },
+    '-',
+    { label: 'Reopen closed tab', off: !closed.length, run: reopenTab },
+  ];
+}
+function toggleMute(t) {
+  t.muted = !t.muted;
+  if (t.wv) { try { t.wv.setAudioMuted(t.muted); } catch {} }
+  t.el.classList.toggle('muted', t.muted);
+}
+function setPinned(t, on) {
+  flip(() => {
+    t.pinned = on; t.el.classList.toggle('pinned', on);
+    tabs.splice(tabs.indexOf(t), 1);
+    tabs.splice(tabs.filter((x) => x.pinned).length, 0, t);
+    tabs.forEach((x) => tabsEl.insertBefore(x.el, indicator));
+  });
+  moveIndicator(); saveSession();
+}
+function sleepTab(t) {
+  if (!t.wv) return;
+  t.sleepUrl = t.failed || t.url;
+  try { t.wv.remove(); } catch {}
+  t.wv = null; t.sleeping = true; t.audible = false; t.loading = false;
+  t.el.classList.remove('audible', 'loading'); t.el.classList.add('sleeping');
+}
+function wakeTab(t) { t.el.classList.remove('sleeping'); mountWebview(t, t.sleepUrl); }
+setInterval(() => {
+  const mins = +prefs.sleep;
+  if (!mins) return;
+  const now = Date.now();
+  tabs.forEach((t) => { if (t.id !== activeId && t.wv && !t.audible && !t.loading && !t.url.startsWith(INTERNAL) && now - t.lastActive > mins * 60000) sleepTab(t); });
+}, 30000);
+
+/* ---------- Memory readout ---------- */
+let memTimer = 0;
+async function updMem() {
+  try {
+    const mb = await window.browsing.memUsage(), n = tabs.filter((t) => t.sleeping).length;
+    $('memText').textContent = 'Browsing is using ' + mb.toLocaleString() + ' MB' + (n ? ' - ' + n + ' tab' + (n > 1 ? 's' : '') + ' sleeping' : '');
+  } catch {}
+}
+function startMem() { updMem(); clearInterval(memTimer); memTimer = setInterval(updMem, 3000); }
+function stopMem() { clearInterval(memTimer); memTimer = 0; }
+
+/* ---------- Home screen: stickers, wallpaper, fonts ---------- */
+const readFile = async (f) => ({ name: f.name, data: await f.arrayBuffer() });
+async function refreshHome() {
+  const h = await window.browsing.homeGet();
+  const list = $('stkList');
+  list.textContent = '';
+  h.stickers.forEach((s) => {
+    const d = document.createElement('div'), im = document.createElement('img'), x = document.createElement('button');
+    d.className = 'stk-th'; im.src = s.url; im.alt = '';
+    x.className = 'icon-btn'; x.setAttribute('aria-label', 'Remove sticker'); x.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    x.onclick = async () => { await window.browsing.stickerRemove(s.id); refreshHome(); };
+    d.append(im, x); list.appendChild(d);
+  });
+  $('wallDim').value = h.wall ? h.wall.dim : 35; $('wallDim').disabled = !h.wall; $('wallRemove').hidden = !h.wall;
+}
+$('stkAdd').onclick = () => $('stkFile').click();
+$('stkFile').onchange = async (e) => {
+  for (const f of e.target.files) { const r = await window.browsing.stickerAdd(await readFile(f)); if (!r.ok) { toast(r.error); break; } }
+  e.target.value = ''; refreshHome();
+};
+$('stkArrange').onclick = () => { openSettings(false); newTab(newtabUrl() + '&edit=1', false, { afterActive: true }); };
+$('wallAdd').onclick = () => $('wallFile').click();
+$('wallFile').onchange = async (e) => {
+  const f = e.target.files[0];
+  if (f) { const r = await window.browsing.wallSet(await readFile(f)); if (!r.ok) toast(r.error); }
+  e.target.value = ''; refreshHome();
+};
+$('wallRemove').onclick = async () => { await window.browsing.wallSet(null); refreshHome(); };
+let wdT = 0;
+$('wallDim').oninput = (e) => { clearTimeout(wdT); wdT = setTimeout(() => window.browsing.wallDim(+e.target.value), 200); };
+
+const FONT_LIST = ['Urbanist', 'Inter', 'Poppins', 'Space Grotesk', 'DM Sans', 'Outfit', 'Nunito', 'Lora', 'Playfair Display', 'JetBrains Mono', 'System UI'];
+let customFonts = [], fontApplied = null;
+function renderFonts() {
+  const box = $('fontChips');
+  box.textContent = '';
+  [...FONT_LIST, ...customFonts].forEach((f) => {
+    const b = document.createElement('button');
+    b.className = 'chip' + (prefs.font === f ? ' on' : ''); b.textContent = f;
+    b.onclick = () => change('font', f);
+    if (customFonts.includes(f)) { b.title = 'Right-click to remove this font'; b.oncontextmenu = (e) => { e.preventDefault(); removeFont(f); }; }
+    box.appendChild(b);
+  });
+}
+async function removeFont(f) {
+  await window.browsing.fontRemove(f);
+  customFonts = await window.browsing.fontsList();
+  if (prefs.font === f) change('font', 'Urbanist'); else renderFonts();
+}
+function loadGoogleFont(f) {
+  const id = 'gf-' + f.replace(/ /g, '-');
+  if (document.getElementById(id)) return;
+  const l = document.createElement('link');
+  l.id = id; l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=' + f.replace(/ /g, '+') + ':wght@400;500;600;700&display=swap';
+  document.head.appendChild(l);
+}
+async function applyFont() {
+  const f = prefs.font || 'Urbanist';
+  if (f === fontApplied) return;
+  fontApplied = f;
+  const st = document.documentElement.style;
+  if (f === 'Urbanist') { st.removeProperty('--font'); window.browsing.fontSet({ kind: 'default', family: f }); return; }
+  if (f === 'System UI') { st.setProperty('--font', 'system-ui'); window.browsing.fontSet({ kind: 'system', family: f }); return; }
+  if (FONT_LIST.includes(f)) { loadGoogleFont(f); st.setProperty('--font', '"' + f + '"'); window.browsing.fontSet({ kind: 'google', family: f }); return; }
+  const d = await window.browsing.fontData(f);
+  if (d) {
+    try { const ff = new FontFace(f, 'url(' + d + ')'); await ff.load(); document.fonts.add(ff); st.setProperty('--font', '"' + f + '"'); window.browsing.fontSet({ kind: 'custom', family: f }); } catch {}
+  }
+}
+$('fontAdd').onclick = () => $('fontFile').click();
+$('fontFile').onchange = async (e) => {
+  const f = e.target.files[0];
+  if (f) {
+    const r = await window.browsing.fontAdd(await readFile(f));
+    if (!r.ok) toast(r.error); else { customFonts = await window.browsing.fontsList(); change('font', r.family); }
+  }
+  e.target.value = '';
+};
+window.browsing.fontsList().then((l) => { customFonts = l; renderFonts(); });
 
 /* ---------- Start ---------- */
 loadPrefs();

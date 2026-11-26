@@ -49,6 +49,22 @@
     .card input:focus { border-color: var(--fg); }
     .card .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
     @keyframes in { from { opacity: 0; } }
+    main { position: relative; z-index: 1; }
+    main > * { animation: rise 0.8s var(--spring) both; animation-delay: calc(var(--i, 0) * 80ms); }
+    main > :nth-child(1) { --i: 0; } main > :nth-child(2) { --i: 1; } main > :nth-child(3) { --i: 2; } main > :nth-child(4) { --i: 3; }
+    @keyframes rise { from { opacity: 0; translate: 0 18px; } }
+    .tile:hover { translate: 0 -3px; } .tile { transition: background 0.2s var(--ease), translate 0.35s var(--spring), transform 0.15s var(--ease); }
+    .wall { position: fixed; inset: 0; z-index: -2; background-size: cover; background-position: center; animation: in 0.8s var(--ease) both; }
+    .wall-dim { position: fixed; inset: 0; z-index: -1; background: var(--bg); }
+    .stk-layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+    .stk { position: absolute; max-width: none; user-select: none; animation: stk-in 0.7s var(--spring) both; animation-delay: calc(var(--i, 0) * 70ms); }
+    @keyframes stk-in { from { opacity: 0; scale: 0.5; } }
+    .stk-layer.edit .stk { pointer-events: auto; cursor: grab; touch-action: none; }
+    .stk-layer.edit .stk:active { cursor: grabbing; }
+    .stk.sel { outline: 2px dashed var(--fg); outline-offset: 6px; }
+    body.editing main { opacity: 0.2; pointer-events: none; transition: opacity 0.3s; }
+    .edit-bar { position: fixed; left: 50%; bottom: 22px; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 18px; border: 1px solid var(--border); border-radius: 26px; background: var(--bg); translate: -50% 0; animation: rise 0.6s var(--spring) both; font-size: 13px; color: var(--muted); }
+    .edit-bar .btn { margin: 0; height: 34px; padding: 0 18px; }
   </style>
 </head>
 <body>
@@ -164,6 +180,76 @@
         }
       }
       render();
+      applyHome(q.get('edit') === '1');
+    }
+
+    async function applyHome(edit) {
+      const home = window.browsingHome;
+      if (!home) return;
+      let d;
+      try { d = await home.get(); } catch { return; }
+      const root = document.documentElement, f = d.font || {};
+      if (f.kind === 'google') {
+        const l = document.createElement('link');
+        l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=' + f.family.replace(/ /g, '+') + ':wght@400;500;600;700&display=swap';
+        document.head.appendChild(l); root.style.setProperty('--font', '"' + f.family + '"');
+      } else if (f.kind === 'system') root.style.setProperty('--font', 'system-ui');
+      else if (f.kind === 'custom' && f.dataUrl) {
+        try { const ff = new FontFace(f.family, 'url(' + f.dataUrl + ')'); await ff.load(); document.fonts.add(ff); root.style.setProperty('--font', '"' + f.family + '"'); } catch {}
+      }
+      if (d.wall) {
+        const w = document.createElement('div'), dim = document.createElement('div');
+        w.className = 'wall'; w.style.backgroundImage = 'url("' + d.wall.url + '")';
+        dim.className = 'wall-dim'; dim.style.opacity = d.wall.dim / 100;
+        document.body.append(w, dim);
+      }
+      const layer = document.createElement('div');
+      layer.className = 'stk-layer' + (edit ? ' edit' : '');
+      document.body.appendChild(layer);
+      const items = d.stickers.slice().sort((a, b) => a.z - b.z).map((s, i) => {
+        const el = document.createElement('img');
+        el.className = 'stk'; el.src = s.url; el.alt = ''; el.draggable = false; el.style.setProperty('--i', i);
+        place(el, s); layer.appendChild(el);
+        return { el, s };
+      });
+      if (edit) { document.body.classList.add('editing'); startEdit(items, home); }
+    }
+    function place(el, s) {
+      el.style.left = s.x + '%'; el.style.top = s.y + '%'; el.style.width = s.w + 'vw';
+      el.style.transform = 'translate(-50%, -50%) rotate(' + s.r + 'deg)'; el.style.zIndex = s.z;
+    }
+    function startEdit(items, home) {
+      let sel = null, timer = 0;
+      const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+      const save = () => { clearTimeout(timer); timer = setTimeout(() => home.saveStickers(items.map(({ s }) => ({ id: s.id, x: s.x, y: s.y, w: s.w, r: s.r, z: s.z }))), 250); };
+      const select = (it) => {
+        items.forEach((x) => x.el.classList.toggle('sel', x === it)); sel = it;
+        if (it) { it.s.z = Math.max(0, ...items.map((x) => x.s.z)) + 1; place(it.el, it.s); save(); }
+      };
+      items.forEach((it) => {
+        it.el.addEventListener('pointerdown', (e) => {
+          e.preventDefault(); select(it);
+          const sx = e.clientX, sy = e.clientY, ox = it.s.x, oy = it.s.y;
+          it.el.setPointerCapture(e.pointerId);
+          const move = (ev) => { it.s.x = clamp(ox + ((ev.clientX - sx) / innerWidth) * 100, 0, 100); it.s.y = clamp(oy + ((ev.clientY - sy) / innerHeight) * 100, 0, 100); place(it.el, it.s); };
+          const up = () => { it.el.removeEventListener('pointermove', move); it.el.removeEventListener('pointerup', up); save(); };
+          it.el.addEventListener('pointermove', move); it.el.addEventListener('pointerup', up);
+        });
+        it.el.addEventListener('wheel', (e) => {
+          e.preventDefault(); select(it);
+          if (e.shiftKey) it.s.r = (it.s.r + (e.deltaY > 0 ? 6 : -6)) % 360; else it.s.w = clamp(it.s.w * (e.deltaY > 0 ? 0.93 : 1.07), 3, 80);
+          place(it.el, it.s); save();
+        }, { passive: false });
+      });
+      const bar = document.createElement('div'), hint = document.createElement('span');
+      const del = document.createElement('button'), done = document.createElement('button');
+      bar.className = 'edit-bar'; hint.textContent = 'Drag to move. Scroll to resize. Shift + scroll to rotate.';
+      del.className = 'btn ghost'; del.textContent = 'Delete';
+      del.onclick = async () => { if (!sel) return; await home.remove(sel.s.id); sel.el.remove(); items.splice(items.indexOf(sel), 1); sel = null; };
+      done.className = 'btn'; done.textContent = 'Done';
+      done.onclick = () => { const u = new URL(location.href); u.searchParams.delete('edit'); location.replace(u.href); };
+      bar.append(hint, del, done); document.body.appendChild(bar);
+      document.addEventListener('pointerdown', (e) => { if (!e.target.classList.contains('stk') && !e.target.closest('.edit-bar')) select(null); });
     }
   </script>
 </body>

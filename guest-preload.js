@@ -1,6 +1,6 @@
 // Runs inside every web page. Fills in standard Chrome objects and, when the ad blocker is on,
 // hides leftover ad containers and trims ad data from YouTube's player response.
-const { webFrame, ipcRenderer } = require('electron');
+const { webFrame, ipcRenderer, contextBridge } = require('electron');
 
 let flags = { adblock: false };
 try { flags = ipcRenderer.sendSync('flags') || flags; } catch {}
@@ -42,4 +42,13 @@ if (location.protocol === 'https:' || location.protocol === 'http:') {
         firstPaintTime: 0, firstPaintAfterLoadTime: 0, navigationType: 'Other', wasFetchedViaSpdy: true,
         wasNpnNegotiated: true, npnNegotiatedProtocol: 'h2', wasAlternateProtocolAvailable: false, connectionInfo: 'h2' }; };
   })();`);
+}
+
+// Only the app's own home screen (src/internal.html) can read or arrange stickers, wallpaper and the chosen font.
+if (location.protocol === 'file:' && /\/src\/internal\.html$/.test(location.pathname)) {
+  contextBridge.exposeInMainWorld('browsingHome', {
+    get: () => ipcRenderer.invoke('home-get'),
+    saveStickers: (list) => ipcRenderer.invoke('home-save-stickers', list),
+    remove: (id) => ipcRenderer.invoke('sticker-remove', id),
+  });
 }
