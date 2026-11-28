@@ -31,6 +31,9 @@
       <button class="icon-btn" id="reload" title="Reload (Ctrl+R)" aria-label="Reload">
         <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
       </button>
+      <button class="icon-btn ab-btn" id="adBtn" title="Ad blocker is on" aria-label="Ad blocker" aria-expanded="false" aria-pressed="true">
+        <svg viewBox="0 0 24 24"><rect x="3" y="6.5" width="18" height="11" rx="3"/><path d="M7.4 14.5l1.8-5 1.8 5M8 13h2.5"/><path d="M13.2 9.5v5h1.2a2.5 2.5 0 0 0 0-5z"/><path class="slash" d="M4.5 20L19.5 4"/></svg>
+      </button>
       <div class="omni">
         <div class="urlwrap"><button class="lock" id="lock" data-s="" title="Site information and permissions" aria-label="Site information and permissions"><svg class="l-s" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><svg class="l-i" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.7"/></svg></button>
           <input id="url" type="text" spellcheck="false" autocomplete="off" placeholder="Search with DuckDuckGo or enter an address" />
@@ -43,6 +46,9 @@
       </button>
       <button class="icon-btn vpn-btn" id="vpnBtn" title="VPN off - click to connect" aria-label="VPN" aria-pressed="false">
         <svg viewBox="0 0 24 24"><path class="shield" d="M12 3l7 3v5c0 4.8-3.2 8.2-7 10-3.8-1.8-7-5.2-7-10V6z"/><path class="tick" d="M9 12l2 2 4-4"/><path class="slash" d="M4 4l16 16"/></svg>
+      </button>
+      <button class="icon-btn pen-btn" id="penBtn" title="Theme colour" aria-label="Theme colour" aria-expanded="false">
+        <svg viewBox="0 0 24 24"><path d="M14.5 4.5l5 5-9.8 9.8-5.7 1.2 1.2-5.7z"/><path d="M12.6 6.4l5 5"/><path d="M13 21.4c1.4-1.1 2.8-1.1 4.2 0s2.8 1.1 4.2 0"/></svg>
       </button>
       <button class="icon-btn" id="theme" title="Switch theme" aria-label="Switch theme">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>
@@ -73,6 +79,20 @@
       <div class="menu-item static"><span>Next tab</span><span class="hint">Ctrl+Tab</span></div>
       <div class="menu-item static"><span>Reopen closed tab</span><span class="hint">Ctrl+Shift+T</span></div>
       <div class="menu-item static"><span>Zoom</span><span class="hint">Ctrl +  /  -  /  0</span></div>
+    </div>
+
+    <div class="pen-pop" id="penPop" role="dialog" aria-label="Theme colour">
+      <div class="pp-head"><b>Theme colour</b><button class="pbtn sm" id="penReset">Reset</button></div>
+      <div class="pp-grid" id="penGrid"></div>
+      <div class="pp-row"><span>Custom colour</span><input type="color" id="penC1" aria-label="Custom colour"></div>
+      <div class="pp-row"><span>Style</span><div class="seg" id="penStyle" style="width:160px"><button data-value="solid">Solid</button><button data-value="gradient">Gradient</button></div></div>
+      <div class="pp-row" id="penC2row" hidden><span>Fade to</span><input type="color" id="penC2" aria-label="Gradient end colour"></div>
+    </div>
+
+    <div class="pen-pop ab-pop" id="abPop" role="dialog" aria-label="Ad blocker">
+      <div class="pp-head"><b>Ad blocker</b><button class="sw" data-pref="adblock" role="switch" aria-checked="true" aria-label="Ad blocker"><i></i></button></div>
+      <div class="ab-stat"><b id="abPopCount">0</b><span>blocked this session</span></div>
+      <p class="ab-note">Applies to pages you open or reload.</p>
     </div>
 
     <div class="settings" id="settings" role="dialog" aria-label="Settings" aria-hidden="true">
@@ -109,11 +129,13 @@
             <div class="seg" id="engSeg" data-pref="engine" style="width:300px"><button data-value="duckduckgo">DuckDuckGo</button><button data-value="google">Google</button><button data-value="bing">Bing</button><button data-value="brave">Brave</button></div></div>
           <div class="srow"><span>On startup</span>
             <div class="seg" id="startSeg" data-pref="startup" style="width:230px"><button data-value="new">New tab</button><button data-value="restore">Restore tabs</button></div></div>
+          <div class="srow"><span>Save tab history<small>Remember open tabs and recently closed tabs</small></span><button class="sw" data-pref="saveTabs" role="switch" aria-checked="true" aria-label="Save tab history"><i></i></button></div>
           <h3>Performance</h3>
           <div class="srow"><span>Animations</span><div class="seg" id="motionSeg" data-pref="motion" style="width:230px"><button data-value="full">Full</button><button data-value="lite">Lite</button><button data-value="off">Off</button></div></div>
-          <div class="srow"><span>Sleep inactive tabs</span><div class="seg" id="sleepSeg" data-pref="sleep" style="width:260px"><button data-value="0">Off</button><button data-value="5">5 min</button><button data-value="15">15 min</button><button data-value="30">30 min</button></div></div>
+          <div class="srow"><span>Sleep inactive tabs<small>Sleeps sooner when memory use is high</small></span><div class="seg" id="sleepSeg" data-pref="sleep" style="width:260px"><button data-value="0">Off</button><button data-value="5">5 min</button><button data-value="15">15 min</button><button data-value="30">30 min</button></div></div>
           <div class="srow"><span id="memText">Memory in use</span></div>
           <h3>Privacy</h3>
+          <div class="srow"><span>Built-in ad blocker<small id="abCount"></small></span><button class="sw" data-pref="adblock" role="switch" aria-checked="true" aria-label="Built-in ad blocker"><i></i></button></div>
           <div class="srow"><span>Privacy and VPN</span><button class="pbtn" id="sOpenPriv">Open</button></div>
           <h3>Data</h3>
           <div class="srow"><span>Settings</span><button class="pbtn" id="sReset">Reset to defaults</button></div>
@@ -131,6 +153,8 @@
             <div><div class="vh-t" id="vpnTitle">VPN is off</div><div class="vh-s" id="vpnMsg">Your traffic is not routed through a VPN</div></div>
             <button class="sw big" id="vpnSw" role="switch" aria-checked="false" aria-label="VPN"><i></i></button>
           </div>
+          <div class="wip-note" id="vpnWip" hidden><b>Work in progress.</b> The VPN is still being built, so it cannot be switched on yet. Everything else on this page works.</div>
+          <div id="vpnBody">
           <h3>Server</h3>
           <div class="vlist" id="vpnList"></div>
           <div class="vcreds" id="vpnCreds" hidden>
@@ -139,11 +163,10 @@
             <div class="btns" style="justify-content:flex-end"><button class="pbtn" id="vpnSave">Save</button></div>
           </div>
           <div class="srow"><span>Auto-connect built-in VPN</span><button class="sw" data-pref="vpnAuto" role="switch" aria-checked="true" aria-label="Auto-connect built-in VPN"><i></i></button></div>
+          </div>
           <h3>Privacy</h3>
-          <div class="srow"><span>Save tab history</span><button class="sw" data-pref="saveTabs" role="switch" aria-checked="true" aria-label="Save tab history"><i></i></button></div>
           <div class="srow"><span>Save search and browsing history</span><button class="sw" data-pref="saveHist" role="switch" aria-checked="true" aria-label="Save search and browsing history"><i></i></button></div>
           <div class="srow"><span>Save download history</span><button class="sw" data-pref="saveDl" role="switch" aria-checked="true" aria-label="Save download history"><i></i></button></div>
-          <div class="srow"><span>Built-in ad blocker<small id="abCount"></small></span><button class="sw" data-pref="adblock" role="switch" aria-checked="true" aria-label="Built-in ad blocker"><i></i></button></div>
           <h3>Clear data</h3>
           <div class="srow"><span>Browsing history</span><span class="btns"><button class="pbtn" id="sHistView">View</button><button class="pbtn" id="sHistClear">Clear</button></span></div>
           <div class="srow"><span>Download history</span><button class="pbtn" id="sDlClear">Clear</button></div>

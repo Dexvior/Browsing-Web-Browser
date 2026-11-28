@@ -37,5 +37,5 @@
   }
 }
 
-* { box-sizing: border-box; font-family: var(--font, 'Urbanist'), sans-serif; }
+* { box-sizing: border-box; font-family: var(--font, 'Urbanist'), sans-serif; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 30%, transparent) transparent; }
 button, input { font-family: var(--font, 'Urbanist'), sans-serif; font-size: inherit; color: inherit; }

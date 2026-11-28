@@ -57,23 +57,6 @@ body { animation: boot 0.5s var(--ease) both; }
 #back:hover svg { transform: translateX(-2px); } #forward:hover svg { transform: translateX(2px); }
 #newTab:hover svg { transform: rotate(90deg); } #reload:active svg { transform: rotate(200deg); }
 #settingsBtn:hover svg { transform: rotate(-12deg) scale(1.06); }
-@keyframes item-in { from { opacity: 0; transform: translateX(8px); } }
-.menu.open > *, .settings.on .sh-body > * { animation: item-in 0.32s var(--ease) both; animation-delay: calc(var(--i, 0) * 28ms); }
-.menu.open > :nth-child(1), .settings.on .sh-body > :nth-child(1) { --i: 0; }
-.menu.open > :nth-child(2), .settings.on .sh-body > :nth-child(2) { --i: 1; }
-.menu.open > :nth-child(3), .settings.on .sh-body > :nth-child(3) { --i: 2; }
-.menu.open > :nth-child(4), .settings.on .sh-body > :nth-child(4) { --i: 3; }
-.menu.open > :nth-child(5), .settings.on .sh-body > :nth-child(5) { --i: 4; }
-.menu.open > :nth-child(6), .settings.on .sh-body > :nth-child(6) { --i: 5; }
-.menu.open > :nth-child(7), .settings.on .sh-body > :nth-child(7) { --i: 6; }
-.menu.open > :nth-child(8), .settings.on .sh-body > :nth-child(8) { --i: 7; }
-.menu.open > :nth-child(9), .settings.on .sh-body > :nth-child(9) { --i: 8; }
-.menu.open > :nth-child(10), .settings.on .sh-body > :nth-child(10) { --i: 9; }
-.menu.open > :nth-child(11), .settings.on .sh-body > :nth-child(11) { --i: 10; }
-.menu.open > :nth-child(12), .settings.on .sh-body > :nth-child(12) { --i: 11; }
-.menu.open > :nth-child(13), .settings.on .sh-body > :nth-child(13) { --i: 12; }
-.menu.open > :nth-child(14), .settings.on .sh-body > :nth-child(14) { --i: 13; }
-.menu.open > :nth-child(15), .settings.on .sh-body > :nth-child(15) { --i: 14; }
 
 /* tab indicator is driven by JS so it never lags behind moving tabs */
 .indicator { transition: none !important; will-change: transform, width, height; }
@@ -172,17 +155,19 @@ body { animation: boot 0.5s var(--ease) both; }
 .sp-row span { flex: 1; } .sp-row .seg { width: 168px; flex: none; }
 
 
-/* ---- smoother, lighter animations: spring open, quick close; closed overlays are not painted ---- */
-.menu, .dlp, .sitep, .perm, .find, .sugg, .zoomp, .settings, .ctx { visibility: hidden; transition: opacity 0.16s var(--ease), transform 0.16s var(--ease), visibility 0s linear 0.16s; }
-.menu.open, .dlp.on, .sitep.on, .perm.on, .find.on, .sugg.on, .zoomp.on, .settings.on, .ctx.on { visibility: visible; transition: opacity 0.22s var(--ease), transform 0.45s var(--spring), visibility 0s; }
-.sheet { transition: transform 0.16s var(--ease); } .settings.on .sheet { transition: transform 0.5s var(--spring); }
+/* ---- lighter animations: only opacity and transform move; closed overlays are not painted ---- */
+.menu, .dlp, .sitep, .perm, .find, .sugg, .zoomp, .settings, .ctx, .pen-pop { visibility: hidden; transition: opacity 0.14s var(--ease), transform 0.14s var(--ease), visibility 0s linear 0.14s; }
+.menu.open, .dlp.on, .sitep.on, .perm.on, .find.on, .sugg.on, .zoomp.on, .settings.on, .ctx.on, .pen-pop.open { visibility: visible; transition: opacity 0.2s var(--ease), transform 0.32s var(--spring), visibility 0s; }
+.sheet { transition: transform 0.14s var(--ease); } .settings.on .sheet { transition: transform 0.36s var(--spring); }
 #stage { contain: layout paint; }
-webview.swap { animation: swap 0.28s var(--ease); }
-@keyframes swap { from { opacity: 0; } }
-@keyframes item-in { from { opacity: 0; translate: 10px 0; } }
-.menu.open > *, .settings.on .sh-body > *, .sitep.on > * { animation: item-in 0.45s var(--spring) both; animation-delay: calc(var(--i, 0) * 22ms); }
+webview.swap { animation: swap 0.16s var(--ease); }
+@keyframes swap { from { opacity: 0.4; } }
+@keyframes item-in { from { opacity: 0; translate: 8px 0; } }
+.menu.open > :nth-child(-n+9) { animation: item-in 0.26s var(--ease) both; animation-delay: calc(var(--i, 0) * 16ms); }
+.menu.open > :nth-child(2) { --i: 1; } .menu.open > :nth-child(3) { --i: 2; } .menu.open > :nth-child(4) { --i: 3; } .menu.open > :nth-child(5) { --i: 4; }
+.menu.open > :nth-child(6) { --i: 5; } .menu.open > :nth-child(7) { --i: 6; } .menu.open > :nth-child(8) { --i: 7; } .menu.open > :nth-child(9) { --i: 8; }
 html[data-motion='lite'] *, html[data-motion='lite'] *::before, html[data-motion='lite'] *::after { transition-duration: 0.08s !important; animation-delay: 0s !important; }
-html[data-motion='lite'] .menu.open > *, html[data-motion='lite'] .settings.on .sh-body > *, html[data-motion='lite'] .sitep.on > * { animation: none !important; }
+html[data-motion='lite'] .menu.open > * { animation: none !important; }
 html[data-motion='lite'] .dl-btn.active svg, html[data-motion='lite'] .vpn-btn.busy::after { animation: none !important; }
 
 /* tab right-click menu */
@@ -240,3 +225,47 @@ input[type='range'] { width: 180px; accent-color: var(--fg); }
 /* fullscreen video hides the toolbar */
 body.fs .tabbar, body.fs .toolbar { display: none; }
 body.fs #app, body.fs #app[data-dock] { grid-template-areas: 'stage' !important; grid-template-rows: minmax(0, 1fr) !important; grid-template-columns: minmax(0, 1fr) !important; }
+
+/* panels never run past the window */
+.menu { max-height: calc(100% - 104px); overflow-y: auto; }
+#app:not([data-dock='top']) .menu { max-height: calc(100% - 64px); }
+.dlp { max-width: calc(100% - 72px); max-height: calc(100% - 112px); }
+#app:not([data-dock='top']) .dlp { max-height: calc(100% - 72px); }
+.dlp-list { flex: 1 1 auto; min-height: 0; max-height: min(320px, calc(100vh - 300px)); }
+.sitep { max-height: calc(100% - 112px); overflow-y: auto; }
+#app:not([data-dock='top']) .sitep { max-height: calc(100% - 72px); }
+.ctx { max-height: calc(100vh - 8px); overflow-y: auto; }
+.h-tools { flex-wrap: wrap; }
+.vpnbox .two, .vcreds .two { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+/* pen: quick theme colour */
+.pen-btn { position: relative; }
+.pen-btn:hover svg { transform: rotate(-14deg) translateY(-1px); }
+.pen-btn::after { content: ''; position: absolute; right: 4px; bottom: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--pen, transparent); box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 2.5px var(--border); opacity: 0; transition: opacity 0.2s; }
+.pen-btn.tinted::after { opacity: 1; }
+.pen-pop { position: absolute; top: 92px; right: 10px; z-index: 55; width: min(290px, calc(100% - 20px)); max-height: calc(100% - 104px); overflow-y: auto; padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); opacity: 0; transform: translateY(-6px) scale(0.98); transform-origin: top right; pointer-events: none; }
+#app:not([data-dock='top']) .pen-pop { top: 52px; max-height: calc(100% - 64px); }
+.pen-pop.open { opacity: 1; transform: none; pointer-events: auto; }
+.pp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-weight: 700; }
+.pp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.pp-grid button { aspect-ratio: 1; padding: 0; border: 1px solid var(--border); border-radius: 50%; cursor: pointer; transition: transform 0.15s var(--ease); }
+.pp-grid button:hover { transform: scale(1.14); }
+.pp-grid button.on { outline: 2px solid var(--fg); outline-offset: 2px; }
+.pp-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; margin-top: 6px; }
+.pp-row > span { color: var(--muted); }
+
+/* VPN: work in progress */
+.vpn-btn.wip { opacity: 0.6; }
+.vpn-btn.wip::after { content: 'WIP'; top: 0; right: -3px; width: auto; height: 11px; padding: 0 3px; border: 0; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 7px; font-weight: 800; line-height: 11px; letter-spacing: 0.04em; }
+.wip-note { margin: 14px 0 4px; padding: 12px 14px; border: 1px dashed var(--border); border-radius: 12px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.wip-note b { color: var(--fg); }
+.sw:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ad blocker button */
+.ab-btn .slash { transition: opacity 0.2s; }
+.ab-btn.off { opacity: 0.55; } .ab-btn.off .slash { opacity: 0; }
+.ab-btn:hover svg { transform: scale(1.08); }
+.ab-pop { left: 106px; right: auto; width: min(300px, calc(100% - 116px)); transform-origin: top left; }
+.ab-stat { display: flex; align-items: baseline; gap: 8px; padding: 4px 0 2px; }
+.ab-stat b { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; } .ab-stat span { color: var(--muted); }
+.ab-note { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }

@@ -57,17 +57,45 @@
     .wall { position: fixed; inset: 0; z-index: -2; background-size: cover; background-position: center; animation: in 0.8s var(--ease) both; }
     .wall-dim { position: fixed; inset: 0; z-index: -1; background: var(--bg); }
     .stk-layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-    .stk { position: absolute; max-width: none; user-select: none; animation: stk-in 0.7s var(--spring) both; animation-delay: calc(var(--i, 0) * 70ms); }
-    @keyframes stk-in { from { opacity: 0; scale: 0.5; } }
-    .stk-layer.edit .stk { pointer-events: auto; cursor: grab; touch-action: none; }
-    .stk-layer.edit .stk:active { cursor: grabbing; }
-    .stk.sel { outline: 2px dashed var(--fg); outline-offset: 6px; }
+    .stk { position: absolute; max-width: none; user-select: none; -webkit-user-select: none; animation: stk-in 0.6s var(--spring) both; animation-delay: calc(var(--i, 0) * 60ms); }
+    @keyframes stk-in { from { opacity: 0; scale: 0.6; } }
+    .stk-inner { position: relative; width: 100%; overflow: hidden; }
+    .stk-img { display: block; width: 100%; height: auto; pointer-events: none; -webkit-user-drag: none; }
+    .stk.crop .stk-inner { aspect-ratio: 1; } .stk.crop .stk-img { height: 100%; object-fit: cover; }
+    .stk[data-shape='rounded'] .stk-inner { border-radius: 16%; }
+    .stk[data-shape='circle'] .stk-inner { clip-path: circle(50%); }
+    .stk[data-shape='triangle'] .stk-inner { clip-path: polygon(50% 4%, 97% 92%, 3% 92%); }
+    .stk[data-shape='diamond'] .stk-inner { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+    .stk[data-shape='hexagon'] .stk-inner { clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%); }
+    .stk[data-shape='star'] .stk-inner { clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+    .stk[data-shape='heart'] .stk-inner { clip-path: url(#clip-heart); }
+    /* peel: a moving highlight, a corner that curls back, and a shadow that grows while the sticker is lifted */
+    .stk-sheen { position: absolute; inset: 0; pointer-events: none; opacity: var(--sheen, 0); background: radial-gradient(circle at var(--gx, 50%) var(--gy, 50%), rgba(255,255,255,0.75), rgba(255,255,255,0) 60%), linear-gradient(115deg, rgba(255,255,255,0) 40%, rgba(255,255,255,0.28) 50%, rgba(255,255,255,0) 60%); }
+    .stk-flap { display: none; position: absolute; pointer-events: none; }
+    .stk.lift { filter: drop-shadow(var(--sx, 0px) var(--sy, 12px) 12px rgba(0, 0, 0, 0.38)); }
+    .stk-layer.edit .stk { pointer-events: auto; cursor: grab; touch-action: none; will-change: transform; }
+    .stk.lift { cursor: grabbing !important; }
+    .stk-box { position: absolute; inset: 0; display: none; pointer-events: none; outline: 1.5px dashed var(--fg); outline-offset: 4px; }
+    .stk.sel .stk-box { display: block; } .stk.lift .stk-box { opacity: 0; }
+    .hdl { position: absolute; width: 14px; height: 14px; border: 1.5px solid var(--fg); border-radius: 50%; background: var(--bg); pointer-events: auto; touch-action: none; }
+    .hdl[data-c='nw'] { left: -11px; top: -11px; cursor: nwse-resize; } .hdl[data-c='ne'] { right: -11px; top: -11px; cursor: nesw-resize; }
+    .hdl[data-c='sw'] { left: -11px; bottom: -11px; cursor: nesw-resize; } .hdl[data-c='se'] { right: -11px; bottom: -11px; cursor: nwse-resize; }
+    .rot { position: absolute; left: 50%; top: -40px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: var(--fg); cursor: grab; pointer-events: auto; touch-action: none; }
+    .rot::before { content: ''; position: absolute; left: 50%; top: 100%; width: 1.5px; height: 24px; margin-left: -0.75px; background: var(--fg); }
     body.editing main { opacity: 0.2; pointer-events: none; transition: opacity 0.3s; }
-    .edit-bar { position: fixed; left: 50%; bottom: 22px; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 18px; border: 1px solid var(--border); border-radius: 26px; background: var(--bg); translate: -50% 0; animation: rise 0.6s var(--spring) both; font-size: 13px; color: var(--muted); }
+    .edit-bar { position: fixed; left: 50%; bottom: 22px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; max-width: calc(100vw - 24px); padding: 8px 8px 8px 18px; border: 1px solid var(--border); border-radius: 26px; background: var(--bg); translate: -50% 0; animation: rise 0.6s var(--spring) both; font-size: 13px; color: var(--muted); }
     .edit-bar .btn { margin: 0; height: 34px; padding: 0 18px; }
+    .shapes { display: none; gap: 2px; } .edit-bar.has-sel .shapes { display: flex; } .edit-bar.has-sel .hint { display: none; }
+    .shp { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid transparent; border-radius: 50%; background: transparent; color: var(--fg); cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.15s; }
+    .shp svg { width: 18px; height: 18px; } .shp:hover { background: var(--hover); } .shp.on { border-color: var(--fg); } .shp:active { transform: scale(0.9); }
+    .drop { position: fixed; inset: 12px; z-index: 6; display: none; place-items: center; border: 2px dashed var(--fg); border-radius: 22px; background: color-mix(in srgb, var(--bg) 70%, transparent); font-size: 18px; font-weight: 600; pointer-events: none; }
+    body.dropping .drop { display: grid; }
+    .fab { position: fixed; right: 18px; bottom: 18px; z-index: 4; height: 34px; padding: 0 16px; border: 1px solid var(--border); border-radius: 17px; background: var(--bg); font-size: 13px; font-weight: 600; cursor: pointer; opacity: 0.7; transition: opacity 0.2s, border-color 0.2s, transform 0.15s; }
+    .fab:hover { opacity: 1; border-color: var(--fg); } .fab:active { transform: scale(0.95); }
   </style>
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute;width:0;height:0" aria-hidden="true" focusable="false"><clipPath id="clip-heart" clipPathUnits="objectBoundingBox"><path style="fill:#000;stroke:none" d="M0.5,0.95 C0.1,0.62 0.02,0.4 0.02,0.28 C0.02,0.12 0.14,0.03 0.27,0.03 C0.37,0.03 0.45,0.09 0.5,0.18 C0.55,0.09 0.63,0.03 0.73,0.03 C0.86,0.03 0.98,0.12 0.98,0.28 C0.98,0.4 0.9,0.62 0.5,0.95 Z"/></clipPath></svg>
   <main id="root"></main>
   <script>
     const q = new URLSearchParams(location.search);
@@ -183,6 +211,138 @@
       applyHome(q.get('edit') === '1');
     }
 
+    /* ---------- Home screen: wallpaper, font and stickers ---------- */
+    const SHAPES = [['none', 'Original'], ['rounded', 'Rounded'], ['circle', 'Circle'], ['square', 'Square'], ['triangle', 'Triangle'], ['diamond', 'Diamond'], ['hexagon', 'Hexagon'], ['star', 'Star'], ['heart', 'Heart']];
+    const SHAPE_ICON = {
+      none: '<rect x="4" y="6" width="16" height="12" rx="1"/>', rounded: '<rect x="4" y="6" width="16" height="12" rx="4"/>',
+      circle: '<circle cx="12" cy="12" r="8"/>', square: '<rect x="5" y="5" width="14" height="14"/>',
+      triangle: '<path d="M12 4l9 16H3z"/>', diamond: '<path d="M12 3l9 9-9 9-9-9z"/>', hexagon: '<path d="M8 4h8l5 8-5 8H8l-5-8z"/>',
+      star: '<path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2L12 17l-5.6 3 1.3-6.2L3 9.5l6.3-.7z"/>',
+      heart: '<path d="M12 20s-8-5-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 9c0 6-8 11-8 11z"/>',
+    };
+    const CROP = new Set(['circle', 'square', 'triangle', 'diamond', 'hexagon', 'star', 'heart']);   // cut from the middle square of the picture
+    const CURL = new Set(['none', 'rounded', 'square']);                                             // shapes with real corners can curl
+    const HINT = 'Drag a sticker to peel it off. Corner dots resize, the top dot rotates. Drop images here to add them.';
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+    const wrap = (r) => ((((r + 180) % 360) + 360) % 360) - 180;
+    const goEdit = () => { const u = new URL(location.href); u.searchParams.set('edit', '1'); location.replace(u.href); };
+
+    // the corner that curls back: what is cut from the picture, where the folded flap sits and how it is shaded
+    const FLAP_BG = (dir) => 'linear-gradient(' + dir + ', transparent 46%, rgba(0,0,0,0.3) 50%, #d6d6d6 52%, #fbfbfb 100%)';
+    const CORNERS = {
+      br: { cut: (p, q) => 'polygon(0 0,100% 0,100% ' + q + '%,' + q + '% 100%,0 100%)', pos: { right: '0', bottom: '0' }, poly: 'polygon(0 0,100% 0,0 100%)', dir: 'to top left' },
+      bl: { cut: (p, q) => 'polygon(0 0,100% 0,100% 100%,' + p + '% 100%,0 ' + q + '%)', pos: { left: '0', bottom: '0' }, poly: 'polygon(0 0,100% 0,100% 100%)', dir: 'to top right' },
+      tr: { cut: (p, q) => 'polygon(0 0,' + q + '% 0,100% ' + p + '%,100% 100%,0 100%)', pos: { right: '0', top: '0' }, poly: 'polygon(0 0,100% 100%,0 100%)', dir: 'to bottom left' },
+      tl: { cut: (p, q) => 'polygon(' + p + '% 0,100% 0,100% 100%,0 100%,0 ' + p + '%)', pos: { left: '0', top: '0' }, poly: 'polygon(100% 0,100% 100%,0 100%)', dir: 'to bottom right' },
+    };
+
+    function makeSticker(s, i, edit) {
+      const el = document.createElement('div');
+      el.className = 'stk'; el.style.setProperty('--i', i);
+      el.innerHTML = '<div class="stk-inner"><img class="stk-img" alt="" draggable="false"><div class="stk-sheen"></div></div><div class="stk-flap"></div>' +
+        (edit ? '<div class="stk-box"><i class="hdl" data-c="nw"></i><i class="hdl" data-c="ne"></i><i class="hdl" data-c="sw"></i><i class="hdl" data-c="se"></i><i class="rot"></i></div>' : '');
+      el.querySelector('.stk-img').src = s.url;
+      const it = { el, s, img: el.querySelector('.stk-img'), flap: el.querySelector('.stk-flap'), L: 0, Lt: 0, C: 0, Ct: 0, nx: 0, ny: 0, lvx: 0, lvy: 0, dx: 0, dy: 0, pdx: 0, pdy: 0, corner: 'br', down: false, raf: 0, last: 0 };
+      setShape(it); place(it);
+      return it;
+    }
+    function setShape(it) {
+      const sh = it.s.shape || 'none';
+      it.el.dataset.shape = sh; it.el.classList.toggle('crop', CROP.has(sh));
+      it.C = 0; it.img.style.clipPath = ''; it.flap.style.display = 'none';
+    }
+    function place(it) {
+      const { el, s } = it;
+      el.style.left = s.x + '%'; el.style.top = s.y + '%'; el.style.width = s.w + 'vw'; el.style.zIndex = s.z;
+      if (it.L > 0.001 || it.C > 0.001) draw(it); else el.style.transform = 'translate(-50%, -50%) rotate(' + s.r + 'deg)';
+    }
+    // lifted sticker: tilts toward the point you hold, leans with the drag, shows a highlight and a growing shadow
+    function draw(it) {
+      const { el, s } = it, L = it.L, r = (s.r * Math.PI) / 180, k = Math.min(1, L * 2);
+      const rx = it.ny * 13 * L - clamp(it.lvy * 0.01, -10, 10) * k;
+      const ry = -it.nx * 13 * L + clamp(it.lvx * 0.01, -10, 10) * k;
+      const persp = Math.max(700, el.offsetWidth * 1.8), d = 14 * L;
+      el.style.transform = 'translate(-50%, -50%) perspective(' + persp.toFixed(0) + 'px) rotate(' + s.r + 'deg) rotateX(' + rx.toFixed(2) + 'deg) rotateY(' + ry.toFixed(2) + 'deg) scale(' + (1 + 0.08 * L).toFixed(3) + ')';
+      el.style.setProperty('--sheen', (L * 0.9).toFixed(2));
+      el.style.setProperty('--gx', ((it.nx * 0.5 + 0.5) * 100).toFixed(1) + '%');
+      el.style.setProperty('--gy', ((it.ny * 0.5 + 0.5) * 100).toFixed(1) + '%');
+      el.style.setProperty('--sx', (d * Math.sin(r)).toFixed(1) + 'px');   // the shadow always falls straight down on screen
+      el.style.setProperty('--sy', (d * Math.cos(r)).toFixed(1) + 'px');
+      drawCurl(it);
+    }
+    function drawCurl(it) {
+      const c = it.C;
+      if (!CURL.has(it.s.shape || 'none') || c < 0.004) { it.img.style.clipPath = ''; it.flap.style.display = 'none'; return; }
+      const k = CORNERS[it.corner], p = +(c * 100).toFixed(2), q = +(100 - p).toFixed(2), f = it.flap.style;
+      it.img.style.clipPath = k.cut(p, q);
+      f.display = 'block'; f.left = f.right = f.top = f.bottom = 'auto';
+      Object.assign(f, k.pos);
+      f.width = p + '%'; f.height = p + '%'; f.clipPath = k.poly; f.background = FLAP_BG(k.dir);
+    }
+    function kick(it) { if (!it.raf) { it.last = 0; it.raf = requestAnimationFrame((t) => tick(it, t)); } }
+    function tick(it, now) {
+      it.raf = 0;
+      const dt = Math.min(48, now - (it.last || now)) || 16; it.last = now;
+      const r = (it.s.r * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
+      const vx = ((it.dx - it.pdx) / dt) * 1000, vy = ((it.dy - it.pdy) / dt) * 1000; it.pdx = it.dx; it.pdy = it.dy;
+      const kv = 1 - Math.exp(-dt / 70);
+      it.lvx += (vx * cos + vy * sin - it.lvx) * kv; it.lvy += (-vx * sin + vy * cos - it.lvy) * kv;
+      it.L += (it.Lt - it.L) * (1 - Math.exp(-dt / 90));
+      it.C += (it.Ct - it.C) * (1 - Math.exp(-dt / 110));
+      draw(it);
+      if (!it.down && it.L < 0.01 && it.C < 0.004 && Math.abs(it.lvx) + Math.abs(it.lvy) < 2) {
+        it.L = it.C = it.lvx = it.lvy = 0; place(it); it.el.classList.remove('lift'); return;
+      }
+      it.raf = requestAnimationFrame((t) => tick(it, t));
+    }
+    // pick the sticker up: it lifts, tilts and (if you grabbed near a corner) the corner peels back
+    function startPeel(it, e, save) {
+      const el = it.el, W = innerWidth, H = innerHeight;
+      const cx = (it.s.x / 100) * W, cy = (it.s.y / 100) * H;
+      const r = (it.s.r * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
+      const ox = e.clientX - cx, oy = e.clientY - cy, hw = el.offsetWidth / 2 || 1, hh = el.offsetHeight / 2 || 1;
+      it.nx = clamp((ox * cos + oy * sin) / hw, -1, 1); it.ny = clamp((-ox * sin + oy * cos) / hh, -1, 1);
+      const edge = clamp((Math.min(Math.abs(it.nx), Math.abs(it.ny)) - 0.3) / 0.45, 0, 1);
+      it.corner = (it.ny < 0 ? 't' : 'b') + (it.nx < 0 ? 'l' : 'r');
+      it.Lt = 1; it.Ct = CURL.has(it.s.shape || 'none') ? 0.2 * edge : 0;
+      it.down = true; it.dx = it.dy = it.pdx = it.pdy = 0;
+      el.classList.add('lift'); el.setPointerCapture(e.pointerId);
+      const sx = e.clientX, sy = e.clientY;
+      const move = (ev) => { it.dx = clamp(ev.clientX - sx, -cx, W - cx); it.dy = clamp(ev.clientY - sy, -cy, H - cy); el.style.translate = it.dx + 'px ' + it.dy + 'px'; };
+      const up = () => {
+        el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+        it.down = false; it.Lt = 0; it.Ct = 0;
+        it.s.x = clamp(it.s.x + (it.dx / W) * 100, 0, 100); it.s.y = clamp(it.s.y + (it.dy / H) * 100, 0, 100);
+        it.dx = it.dy = it.pdx = it.pdy = 0; el.style.translate = '';
+        place(it); kick(it); save();
+      };
+      el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+      kick(it);
+    }
+
+    async function uploadFiles(home, files) {
+      let count = 0, error = '';
+      for (const f of files) {
+        if (!/^image\//.test(f.type) && !/\.(png|jpe?g|gif|webp|svg|avif)$/i.test(f.name)) continue;
+        let r;
+        try { r = await home.add({ name: f.name, data: await f.arrayBuffer() }); } catch { r = null; }
+        if (!r || !r.ok) { error = (r && r.error) || 'Could not add that image'; break; }
+        count++;
+      }
+      return { count, error };
+    }
+    // drag image files from your computer onto the page
+    function setupDrop(onFiles) {
+      let depth = 0;
+      const has = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+      const veil = document.createElement('div');
+      veil.className = 'drop'; veil.textContent = 'Drop an image to make it a sticker'; document.body.appendChild(veil);
+      document.addEventListener('dragenter', (e) => { if (!has(e)) return; e.preventDefault(); depth++; document.body.classList.add('dropping'); });
+      document.addEventListener('dragover', (e) => { if (has(e)) e.preventDefault(); });
+      document.addEventListener('dragleave', (e) => { if (has(e) && --depth <= 0) { depth = 0; document.body.classList.remove('dropping'); } });
+      document.addEventListener('drop', (e) => { if (!has(e)) return; e.preventDefault(); depth = 0; document.body.classList.remove('dropping'); onFiles([...e.dataTransfer.files]); });
+    }
+
     async function applyHome(edit) {
       const home = window.browsingHome;
       if (!home) return;
@@ -206,50 +366,102 @@
       const layer = document.createElement('div');
       layer.className = 'stk-layer' + (edit ? ' edit' : '');
       document.body.appendChild(layer);
-      const items = d.stickers.slice().sort((a, b) => a.z - b.z).map((s, i) => {
-        const el = document.createElement('img');
-        el.className = 'stk'; el.src = s.url; el.alt = ''; el.draggable = false; el.style.setProperty('--i', i);
-        place(el, s); layer.appendChild(el);
-        return { el, s };
+      const items = d.stickers.slice().sort((a, b) => a.z - b.z).map((s, i) => { const it = makeSticker(s, i, edit); layer.appendChild(it.el); return it; });
+      if (edit) { document.body.classList.add('editing'); startEdit(items, layer, home); return; }
+      const fab = document.createElement('button');
+      fab.className = 'fab'; fab.textContent = 'Edit stickers'; fab.onclick = goEdit; document.body.appendChild(fab);
+      setupDrop(async (files) => { const r = await uploadFiles(home, files); if (r.count) goEdit(); });
+    }
+
+    function startEdit(items, layer, home) {
+      let sel = null, timer = 0, msgT = 0;
+      const save = () => { clearTimeout(timer); timer = setTimeout(() => home.saveStickers(items.map(({ s }) => ({ id: s.id, x: s.x, y: s.y, w: s.w, r: wrap(s.r), z: s.z, shape: s.shape || 'none' }))), 250); };
+
+      const bar = document.createElement('div'), hint = document.createElement('span'), shapes = document.createElement('div');
+      const up = document.createElement('button'), del = document.createElement('button'), done = document.createElement('button'), file = document.createElement('input');
+      bar.className = 'edit-bar'; hint.className = 'hint'; hint.textContent = HINT; shapes.className = 'shapes';
+      up.className = 'btn ghost'; up.textContent = 'Upload'; del.className = 'btn ghost'; del.textContent = 'Delete'; done.className = 'btn'; done.textContent = 'Done';
+      file.type = 'file'; file.accept = 'image/*'; file.multiple = true; file.hidden = true;
+      const shapeBtns = SHAPES.map(([key, label]) => {
+        const b = document.createElement('button');
+        b.className = 'shp'; b.title = label; b.setAttribute('aria-label', label); b.innerHTML = '<svg viewBox="0 0 24 24">' + SHAPE_ICON[key] + '</svg>';
+        b.onclick = () => { if (!sel) return; sel.s.shape = key; setShape(sel); place(sel); mark(); save(); };
+        shapes.appendChild(b); return [key, b];
       });
-      if (edit) { document.body.classList.add('editing'); startEdit(items, home); }
-    }
-    function place(el, s) {
-      el.style.left = s.x + '%'; el.style.top = s.y + '%'; el.style.width = s.w + 'vw';
-      el.style.transform = 'translate(-50%, -50%) rotate(' + s.r + 'deg)'; el.style.zIndex = s.z;
-    }
-    function startEdit(items, home) {
-      let sel = null, timer = 0;
-      const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-      const save = () => { clearTimeout(timer); timer = setTimeout(() => home.saveStickers(items.map(({ s }) => ({ id: s.id, x: s.x, y: s.y, w: s.w, r: s.r, z: s.z }))), 250); };
-      const select = (it) => {
-        items.forEach((x) => x.el.classList.toggle('sel', x === it)); sel = it;
-        if (it) { it.s.z = Math.max(0, ...items.map((x) => x.s.z)) + 1; place(it.el, it.s); save(); }
+      const mark = () => shapeBtns.forEach(([key, b]) => b.classList.toggle('on', !!sel && (sel.s.shape || 'none') === key));
+      const say = (m) => {
+        hint.textContent = m; bar.classList.remove('has-sel'); clearTimeout(msgT);
+        msgT = setTimeout(() => { hint.textContent = HINT; bar.classList.toggle('has-sel', !!sel); }, 2800);
       };
-      items.forEach((it) => {
+
+      const select = (it) => {
+        sel = it;
+        items.forEach((x) => x.el.classList.toggle('sel', x === it));
+        if (it) {                                           // bring it to the front (z numbers stay small and tidy)
+          const order = items.filter((x) => x !== it).sort((a, b) => a.s.z - b.s.z); order.push(it);
+          let changed = false;
+          order.forEach((x, i) => { if (x.s.z !== i) { x.s.z = i; x.el.style.zIndex = i; changed = true; } });
+          if (changed) save();
+        }
+        bar.classList.toggle('has-sel', !!it); mark();
+      };
+      const remove = async (it) => { await home.remove(it.s.id); it.el.remove(); items.splice(items.indexOf(it), 1); if (sel === it) select(null); };
+
+      // corner dots resize, the top dot rotates
+      const wire = (it) => {
         it.el.addEventListener('pointerdown', (e) => {
-          e.preventDefault(); select(it);
-          const sx = e.clientX, sy = e.clientY, ox = it.s.x, oy = it.s.y;
-          it.el.setPointerCapture(e.pointerId);
-          const move = (ev) => { it.s.x = clamp(ox + ((ev.clientX - sx) / innerWidth) * 100, 0, 100); it.s.y = clamp(oy + ((ev.clientY - sy) / innerHeight) * 100, 0, 100); place(it.el, it.s); };
-          const up = () => { it.el.removeEventListener('pointermove', move); it.el.removeEventListener('pointerup', up); save(); };
-          it.el.addEventListener('pointermove', move); it.el.addEventListener('pointerup', up);
+          if (e.button !== 0 || e.target.closest('.hdl, .rot')) return;
+          e.preventDefault(); select(it); startPeel(it, e, save);
         });
-        it.el.addEventListener('wheel', (e) => {
-          e.preventDefault(); select(it);
-          if (e.shiftKey) it.s.r = (it.s.r + (e.deltaY > 0 ? 6 : -6)) % 360; else it.s.w = clamp(it.s.w * (e.deltaY > 0 ? 0.93 : 1.07), 3, 80);
-          place(it.el, it.s); save();
-        }, { passive: false });
-      });
-      const bar = document.createElement('div'), hint = document.createElement('span');
-      const del = document.createElement('button'), done = document.createElement('button');
-      bar.className = 'edit-bar'; hint.textContent = 'Drag to move. Scroll to resize. Shift + scroll to rotate.';
-      del.className = 'btn ghost'; del.textContent = 'Delete';
-      del.onclick = async () => { if (!sel) return; await home.remove(sel.s.id); sel.el.remove(); items.splice(items.indexOf(sel), 1); sel = null; };
-      done.className = 'btn'; done.textContent = 'Done';
+        const grab = (h, onMove) => h.addEventListener('pointerdown', (e) => {
+          e.preventDefault(); e.stopPropagation(); select(it); h.setPointerCapture(e.pointerId);
+          const cx = (it.s.x / 100) * innerWidth, cy = (it.s.y / 100) * innerHeight, begin = onMove(e, cx, cy);
+          const mv = (ev) => { begin(ev); place(it); };
+          const end = () => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', end); h.removeEventListener('pointercancel', end); save(); };
+          h.addEventListener('pointermove', mv); h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+        });
+        it.el.querySelectorAll('.hdl').forEach((h) => grab(h, (e, cx, cy) => {
+          const d0 = Math.hypot(e.clientX - cx, e.clientY - cy) || 1, w0 = it.s.w;
+          return (ev) => { it.s.w = clamp((w0 * Math.hypot(ev.clientX - cx, ev.clientY - cy)) / d0, 3, 80); };
+        }));
+        grab(it.el.querySelector('.rot'), (e, cx, cy) => {
+          const a0 = Math.atan2(e.clientY - cy, e.clientX - cx), r0 = it.s.r;
+          return (ev) => { let r = r0 + ((Math.atan2(ev.clientY - cy, ev.clientX - cx) - a0) * 180) / Math.PI; if (ev.shiftKey) r = Math.round(r / 15) * 15; it.s.r = r; };
+        });
+      };
+      items.forEach(wire);
+
+      // add pictures: Upload button or drag files onto the page
+      const addFiles = async (files) => {
+        const r = await uploadFiles(home, files);
+        if (r.error) say(r.error);
+        if (!r.count) return;
+        const d = await home.get(), have = new Set(items.map((x) => x.s.id));
+        let last = null;
+        d.stickers.forEach((s) => { if (have.has(s.id)) return; const it = makeSticker(s, 0, true); layer.appendChild(it.el); wire(it); items.push(it); last = it; });
+        if (last) select(last);
+      };
+      up.onclick = () => file.click();
+      file.onchange = () => { addFiles([...file.files]); file.value = ''; };
+      setupDrop(addFiles);
+
+      del.onclick = () => { if (sel) remove(sel); };
       done.onclick = () => { const u = new URL(location.href); u.searchParams.delete('edit'); location.replace(u.href); };
-      bar.append(hint, del, done); document.body.appendChild(bar);
-      document.addEventListener('pointerdown', (e) => { if (!e.target.classList.contains('stk') && !e.target.closest('.edit-bar')) select(null); });
+      bar.append(hint, shapes, up, del, done, file); document.body.appendChild(bar);
+
+      document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.stk') && !e.target.closest('.edit-bar')) select(null); });
+      document.addEventListener('keydown', (e) => {
+        if (!sel || /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+        if (e.key === 'Delete' || e.key === 'Backspace') remove(sel);
+        else if (e.key === 'Escape') select(null);
+        else if (e.key.startsWith('Arrow')) {
+          e.preventDefault();
+          const st = e.shiftKey ? 2 : 0.4;
+          if (e.key === 'ArrowLeft') sel.s.x = clamp(sel.s.x - st, 0, 100); if (e.key === 'ArrowRight') sel.s.x = clamp(sel.s.x + st, 0, 100);
+          if (e.key === 'ArrowUp') sel.s.y = clamp(sel.s.y - st, 0, 100); if (e.key === 'ArrowDown') sel.s.y = clamp(sel.s.y + st, 0, 100);
+          place(sel); save();
+        }
+      });
     }
   </script>
 </body>

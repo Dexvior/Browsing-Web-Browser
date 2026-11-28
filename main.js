@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell, clipboard, screen, net, safeStorage, webContents } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, nativeTheme, nativeImage, session, shell, clipboard, screen, net, safeStorage, webContents } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -10,9 +10,12 @@ const OVERLAY = {
   dark: { color: '#000000', symbolColor: '#ffffff', height: 40 },
   light: { color: '#ffffff', symbolColor: '#000000', height: 40 },
 };
-let win, bounds = null;
+let win, bounds = null, chrome = null, chromeTimer = 0;      // chrome = last theme colours { color, symbol, dark }, remembered so the window starts in the right colour
+const isHex = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+const validChrome = (c) => (c && isHex(c.color) && isHex(c.symbol) ? { color: c.color, symbol: c.symbol, dark: !!c.dark } : null);
 
-if (!app.requestSingleInstanceLock()) app.quit();
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) app.quit();                   // a second copy must not build its own window (see whenReady below)
 
 const send = (ch, payload) => { if (win && !win.isDestroyed()) win.webContents.send(ch, payload); };
 
@@ -22,13 +25,15 @@ function loadState() { try { return JSON.parse(fs.readFileSync(stateFile(), 'utf
 function saveState() {
   if (!win || win.isDestroyed()) return;
   if (!win.isMaximized() && !win.isMinimized()) bounds = win.getBounds();
-  try { fs.writeFileSync(stateFile(), JSON.stringify({ ...bounds, max: win.isMaximized() })); } catch {}
+  try { fs.writeFileSync(stateFile(), JSON.stringify({ ...bounds, max: win.isMaximized(), chrome })); } catch {}
 }
 const onScreen = (s) => Number.isFinite(s.x) && Number.isFinite(s.y) && screen.getAllDisplays().some((d) =>
   s.x >= d.bounds.x - 40 && s.x < d.bounds.x + d.bounds.width - 120 && s.y >= d.bounds.y - 10 && s.y < d.bounds.y + d.bounds.height - 120);
 
 function createWindow() {
   const st = loadState();
+  chrome = validChrome(st.chrome);
+  if (chrome) nativeTheme.themeSource = chrome.dark ? 'dark' : 'light';
   win = new BrowserWindow({
     width: st.width || 1280,
     height: st.height || 800,
@@ -38,9 +43,9 @@ function createWindow() {
     show: false,                       // no white flash: show once the first frame is ready
     title: 'Browsing',
     icon: path.join(__dirname, 'build', 'icon.png'),
-    backgroundColor: '#000000',
+    backgroundColor: chrome ? chrome.color : '#000000',
     titleBarStyle: 'hidden',
-    titleBarOverlay: OVERLAY.dark,
+    titleBarOverlay: chrome ? { color: chrome.color, symbolColor: chrome.symbol, height: 40 } : OVERLAY.dark,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -91,6 +96,21 @@ function showContextMenu(contents, host, p) {
 /* ---------- shortcuts, popup windows and right-click menu ---------- */
 const sizeOf = (features, key) => { const m = new RegExp(key + '=(\\d+)').exec(features || ''); return m ? +m[1] : undefined; };
 
+// Popups that need a real window (they call back into the page that opened them). Everything else becomes a tab.
+// If a site's "Sign in with ..." popup does not work, add its host here.
+const POPUP_HOSTS = /(^|\.)(accounts\.google\.com|appleid\.apple\.com|login\.microsoftonline\.com|login\.live\.com|login\.microsoft\.com|paypal\.com|auth0\.com|okta\.com|id\.twitch\.tv|api\.twitter\.com|accounts\.spotify\.com)$/i;
+function needsRealPopup(url) {
+  if (!url || url === 'about:blank') return true;       // script-driven popups that fill themselves in afterwards
+  try {
+    const u = new URL(url);
+    if (POPUP_HOSTS.test(u.hostname)) return true;
+    if (/(^|\.)facebook\.com$/i.test(u.hostname) && /\/dialog\//.test(u.pathname)) return true;
+    if (u.hostname === 'github.com' && /^\/login\/oauth/.test(u.pathname)) return true;
+    if (u.hostname === 'discord.com' && /^\/oauth2\//.test(u.pathname)) return true;
+  } catch {}
+  return false;
+}
+
 app.on('web-contents-created', (_, contents) => {
   const isMain = !win;                         // the main window's page is created before `win` is assigned
   const isGuest = contents.getType() === 'webview';
@@ -127,12 +147,14 @@ app.on('web-contents-created', (_, contents) => {
     contents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key.toLowerCase() === 'f12') { event.preventDefault(); contents.toggleDevTools(); }
     });
-    // Sign-in popups (Google, Apple, ...) must stay real windows so they can talk back to the page that opened them.
-    // Plain links and window.open() without a popup size become new tabs.
-    contents.setWindowOpenHandler(({ url, features, disposition }) => {
+    // Like Chrome, links, target="_blank" and window.open() open a new TAB in this window.
+    // Only sign-in / payment popups (see needsRealPopup) stay small real windows, because they must talk back to the page that opened them.
+    contents.setWindowOpenHandler(({ url, features }) => {
       const h = host();
-      const popup = disposition === 'new-window' || (features && features.length > 0);
-      if (!popup) { if (h) h.send('open-url', url); return { action: 'deny' }; }
+      if (!needsRealPopup(url)) {
+        if (h) h.send('open-url', url);
+        return { action: 'deny' };
+      }
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
@@ -154,11 +176,13 @@ app.on('web-contents-created', (_, contents) => {
 
 /* ---------- IPC ---------- */
 ipcMain.on('set-chrome', (_, o) => {
-  const ok = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
-  if (!o || !ok(o.color) || !ok(o.symbol)) return;
-  nativeTheme.themeSource = o.dark ? 'dark' : 'light';
-  try { win.setTitleBarOverlay({ color: o.color, symbolColor: o.symbol, height: 40 }); } catch {}
-  win.setBackgroundColor(o.color);
+  const next = validChrome(o);
+  if (!next || !win || win.isDestroyed()) return;
+  chrome = next;
+  nativeTheme.themeSource = next.dark ? 'dark' : 'light';
+  try { win.setTitleBarOverlay({ color: next.color, symbolColor: next.symbol, height: 40 }); } catch {}
+  win.setBackgroundColor(next.color);
+  clearTimeout(chromeTimer); chromeTimer = setTimeout(saveState, 500);   // colour pickers send many updates: save once they settle
 });
 ipcMain.handle('clear-data', async () => {
   const ses = session.fromPartition(PARTITION);
@@ -317,7 +341,7 @@ ipcMain.on('flags', (e) => { e.returnValue = { adblock: flags.adblock }; });
 ipcMain.on('set-flags', (_, f) => {
   if (!f) return;
   flags.adblock = !!f.adblock; flags.saveDl = !!f.saveDl; flags.vpnAuto = !!f.vpnAuto; flags.saveTabs = f.saveTabs !== false;
-  if (flags.vpnAuto && !autoDone) { autoDone = true; vpnConnect(); }
+  if (flags.vpnAuto && !autoDone && !VPN_WIP) { autoDone = true; vpnConnect(); }
 });
 
 /* ---------- built-in ad and tracker blocker (network level) ---------- */
@@ -358,6 +382,10 @@ function setupAdblock(ses) {
 ipcMain.handle('adblock-count', () => blockedCount);
 
 /* ---------- built-in VPN (routes browser traffic through a server from the list, or your own) ---------- */
+// Work in progress: while true the VPN cannot connect, the server list is not downloaded and nothing touches the network.
+// Set to false to switch the feature back on.
+const VPN_WIP = true;
+const VPN_WIP_MESSAGE = 'The VPN is a work in progress and is not available yet.';
 const vpnFile = () => path.join(app.getPath('userData'), 'vpn.json');
 const serversCache = () => path.join(app.getPath('userData'), 'servers-cache.json');
 // The list of servers is published in servers.json in the project's GitHub repository, so it can change without a new release.
@@ -435,6 +463,7 @@ function probe(ses) {
   });
 }
 async function vpnConnect() {
+  if (VPN_WIP) { setVpnState('error', VPN_WIP_MESSAGE); return; }
   const ses = session.fromPartition(PARTITION);
   setVpnState('connecting');
   const eff = await effective();
@@ -458,10 +487,11 @@ async function vpnDisconnect(quiet) {
 app.on('login', (event, _wc, _req, authInfo, callback) => {
   if (authInfo.isProxy && curCreds.user && vpnState.state !== 'off') { event.preventDefault(); callback(curCreds.user, curCreds.pass); }
 });
-ipcMain.handle('vpn-get', () => { const c = vpn.creds[vpn.sel] || {}; return { ...vpnState, sel: vpn.sel, custom: vpn.custom, servers: allServers(), user: c.user || '', hasPass: !!c.pass }; });
-ipcMain.handle('vpn-refresh', async () => { serversReady = loadServers(); await serversReady; return allServers(); });
-ipcMain.handle('vpn-ping', async () => { const out = {}; await Promise.all(allServers().map(async (s) => { out[s.id] = await pingOne(s.server); })); return out; });
+ipcMain.handle('vpn-get', () => { const c = vpn.creds[vpn.sel] || {}; return { ...vpnState, wip: VPN_WIP, sel: vpn.sel, custom: vpn.custom, servers: allServers(), user: c.user || '', hasPass: !!c.pass }; });
+ipcMain.handle('vpn-refresh', async () => { if (!VPN_WIP) { serversReady = loadServers(); await serversReady; } return allServers(); });
+ipcMain.handle('vpn-ping', async () => { const out = {}; if (VPN_WIP) return out; await Promise.all(allServers().map(async (s) => { out[s.id] = await pingOne(s.server); })); return out; });
 ipcMain.handle('vpn-select', (_, o) => {
+  if (VPN_WIP) return { ok: false, error: VPN_WIP_MESSAGE };
   if (!o) return { ok: false, error: 'Nothing selected' };
   const sel = String(o.sel || 'auto');
   if (sel !== 'auto' && sel !== 'custom' && !allServers().some((s) => s.id === sel)) return { ok: false, error: 'Unknown server' };
@@ -483,7 +513,11 @@ ipcMain.handle('vpn-select', (_, o) => {
   saveVpn();
   return { ok: true };
 });
-ipcMain.handle('vpn-toggle', async (_, on) => { if (on) await vpnConnect(); else await vpnDisconnect(); return vpnState; });
+ipcMain.handle('vpn-toggle', async (_, on) => {
+  if (VPN_WIP) { if (on) await vpnConnect(); return vpnState; }
+  if (on) await vpnConnect(); else await vpnDisconnect();
+  return vpnState;
+});
 
 /* ---------- tabs saved by the main process (survives any way of closing the window) ---------- */
 const sessionFile = () => path.join(app.getPath('userData'), 'session.json');
@@ -509,12 +543,28 @@ function loadHome() { try { home = { ...home, ...JSON.parse(fs.readFileSync(home
 const saveHome = () => { try { fs.writeFileSync(homeFile(), JSON.stringify(home)); } catch {} };
 const IMG_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif']);
 const FONT_MIME = { '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2' };
+const SHAPES = new Set(['none', 'circle', 'rounded', 'square', 'triangle', 'diamond', 'hexagon', 'star', 'heart']);
 const rid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-function saveUpload(sub, name, data, ok, maxMB) {
+// A picture is held in memory fully decoded (width x height x 4 bytes), so a huge photo costs far more RAM than its file size.
+// PNG/JPG uploads are scaled down to maxPx on the longest side (GIF/SVG/WebP/AVIF are kept as they are).
+function shrink(buf, ext, maxPx) {
+  if (!maxPx || (ext !== '.png' && ext !== '.jpg' && ext !== '.jpeg')) return buf;
+  try {
+    const img = nativeImage.createFromBuffer(buf);
+    const { width, height } = img.getSize();
+    const big = Math.max(width, height);
+    if (!big || big <= maxPx) return buf;
+    const k = maxPx / big;
+    const out = img.resize({ width: Math.max(1, Math.round(width * k)), height: Math.max(1, Math.round(height * k)), quality: 'best' });
+    return ext === '.png' ? out.toPNG() : out.toJPEG(90);
+  } catch { return buf; }
+}
+function saveUpload(sub, name, data, ok, maxMB, maxPx) {
   const ext = path.extname(String(name || '')).toLowerCase();
   if (!ok(ext)) return { error: 'That file type is not supported' };
-  const buf = Buffer.from(data || []);
+  let buf = Buffer.from(data || []);
   if (!buf.length || buf.length > maxMB * 1048576) return { error: 'The file is too large (max ' + maxMB + ' MB)' };
+  buf = shrink(buf, ext, maxPx);
   const dir = path.join(app.getPath('userData'), sub);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, rid() + ext);
@@ -529,17 +579,17 @@ function fontView() {
   return f.kind === 'google' || f.kind === 'system' ? { kind: f.kind, family: f.family } : { kind: 'default', family: 'Urbanist' };
 }
 ipcMain.handle('home-get', () => ({
-  stickers: home.stickers.map((s) => ({ id: s.id, url: pathToFileURL(s.file).href, x: s.x, y: s.y, w: s.w, r: s.r, z: s.z })),
+  stickers: home.stickers.map((s) => ({ id: s.id, url: pathToFileURL(s.file).href, x: s.x, y: s.y, w: s.w, r: s.r, z: s.z, shape: s.shape || 'none' })),
   wall: home.wall ? { url: pathToFileURL(home.wall.file).href, dim: home.wall.dim } : null,
   font: fontView(),
 }));
 ipcMain.handle('sticker-add', (_, o) => {
   if (!o) return { ok: false, error: 'No file' };
-  if (home.stickers.length >= 12) return { ok: false, error: 'You can have up to 12 stickers' };
-  const r = saveUpload('stickers', o.name, o.data, (e) => IMG_EXT.has(e), 8);
+  if (home.stickers.length >= 20) return { ok: false, error: 'You can have up to 20 stickers' };
+  const r = saveUpload('stickers', o.name, o.data, (e) => IMG_EXT.has(e), 8, 1024);
   if (r.error) return { ok: false, error: r.error };
   const n = home.stickers.length;
-  home.stickers.push({ id: rid(), file: r.file, x: 25 + ((n * 11) % 50), y: 30 + ((n * 17) % 40), w: 14, r: 0, z: n });
+  home.stickers.push({ id: rid(), file: r.file, x: 25 + ((n * 11) % 50), y: 30 + ((n * 17) % 40), w: 14, r: 0, z: n, shape: 'none' });
   saveHome();
   return { ok: true };
 });
@@ -553,14 +603,14 @@ ipcMain.handle('home-save-stickers', (_, list) => {
   const num = (v, lo, hi, d) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
   list.forEach((u) => {
     const s = u && home.stickers.find((x) => x.id === u.id);
-    if (s) { s.x = num(u.x, 0, 100, s.x); s.y = num(u.y, 0, 100, s.y); s.w = num(u.w, 3, 80, s.w); s.r = num(u.r, -360, 360, s.r); s.z = num(u.z, 0, 999, s.z); }
+    if (s) { s.x = num(u.x, 0, 100, s.x); s.y = num(u.y, 0, 100, s.y); s.w = num(u.w, 3, 80, s.w); s.r = num(u.r, -360, 360, s.r); s.z = num(u.z, 0, 999, s.z); if (SHAPES.has(u.shape)) s.shape = u.shape; }
   });
   saveHome();
   return true;
 });
 ipcMain.handle('wall-set', (_, o) => {
   if (!o) { if (home.wall) rm(home.wall.file); home.wall = null; saveHome(); return { ok: true }; }
-  const r = saveUpload('wall', o.name, o.data, (e) => IMG_EXT.has(e), 15);
+  const r = saveUpload('wall', o.name, o.data, (e) => IMG_EXT.has(e), 15, 2560);
   if (r.error) return { ok: false, error: r.error };
   const dim = home.wall ? home.wall.dim : 35;
   if (home.wall) rm(home.wall.file);
@@ -609,6 +659,7 @@ function setupUpdates() {
 }
 
 app.whenReady().then(() => {
+  if (!gotLock) return;                         // second copy: quit without drawing a window
   Menu.setApplicationMenu(null);
   const ses = session.fromPartition(PARTITION);
   // Present a normal Chromium identity: same UA Electron would send, minus the Electron/app tokens.
@@ -628,10 +679,17 @@ app.whenReady().then(() => {
   setupAdblock(ses);
   loadVpn();
   loadHome();
-  serversReady = loadServers();
+  serversReady = VPN_WIP ? Promise.resolve() : loadServers();
   createWindow();
   setupUpdates();
 });
 
-app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+// Starting Browsing again (or opening a link with it) brings the existing window forward and opens the link as a new tab.
+app.on('second-instance', (_e, argv) => {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.focus();
+  const link = (argv || []).find((a) => /^https?:\/\//i.test(a));
+  if (link) send('open-url', link);
+});
 app.on('window-all-closed', () => app.quit());

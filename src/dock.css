@@ -35,13 +35,13 @@
 .toolbar .icon-btn, .urlwrap { -webkit-app-region: no-drag; }
 #app[data-dock='top'] .menu { top: 92px; }
 #app:not([data-dock='top']) .menu { top: 52px; }
-.menu { width: 300px; }
+.menu { width: min(300px, calc(100% - 20px)); }
 .menu-item.static.row { color: var(--fg); }
 
 /* Segmented controls (theme and tab bar position) */
-.seg { --n: 2; --i: 0; position: relative; display: grid; grid-template-columns: repeat(var(--n), 1fr); width: 130px; height: 26px; border: 1px solid var(--border); border-radius: 13px; }
+.seg { --n: 2; --i: 0; max-width: 100%; position: relative; display: grid; grid-template-columns: repeat(var(--n), 1fr); width: 130px; height: 26px; border: 1px solid var(--border); border-radius: 13px; }
 .seg::before { content: ''; position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / var(--n)); border-radius: 11px; background: var(--fg); transform: translateX(calc(var(--i) * 100%)); transition: transform 0.3s var(--ease); }
-.seg button { position: relative; z-index: 1; border: 0; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: color 0.3s var(--ease); }
+.seg button { position: relative; z-index: 1; min-width: 0; padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border: 0; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: color 0.3s var(--ease); }
 .seg button.on { color: var(--bg); }
 #dockSeg { width: 190px; }
 

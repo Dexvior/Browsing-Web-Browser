@@ -51,7 +51,6 @@ function mountWebview(t, url) {
     t.url = e.url;
     logSearchFrom(e.url);
     if (!e.url.startsWith(INTERNAL)) { t.failed = null; visit(e.url); }
-    wv.classList.remove('fade'); void wv.offsetWidth; wv.classList.add('fade');
     sync(); saveSession();
   });
   wv.addEventListener('did-navigate-in-page', (e) => { if (e.isMainFrame) { t.url = e.url; sync(); saveSession(); } });
@@ -87,8 +86,11 @@ function newTab(url = newtabUrl(), focusBar = url.startsWith(NEWTAB_BASE), opts 
   if (opts.afterId) { const i = tabs.findIndex((x) => x.id === opts.afterId); if (i >= 0) at = i + 1; }
   tabs.splice(at, 0, t);
   tabsEl.insertBefore(el, tabs[at + 1] ? tabs[at + 1].el : indicator);
-  el.classList.add('entering');
-  el.addEventListener('animationend', (e) => { if (e.target === el) { el.classList.remove('entering'); el.style.animation = 'none'; } });
+  if (opts.instant) el.style.animation = 'none';
+  else {
+    el.classList.add('entering');
+    el.addEventListener('animationend', (e) => { if (e.target === el) { el.classList.remove('entering'); el.style.animation = 'none'; } });
+  }
   moveIndicator();
 
   el.addEventListener('click', () => activate(id));
@@ -105,6 +107,15 @@ function newTab(url = newtabUrl(), focusBar = url.startsWith(NEWTAB_BASE), opts 
     moveTab(dragId, id, isVertical() ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2);
   });
 
+  if (opts.lazy) {
+    // restored tab: no page and no process until you open the tab (saves a lot of memory at startup)
+    t.sleeping = true; t.sleepUrl = url; t.lastActive = 0;
+    let host = ''; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+    t.title = host || 'New Tab'; renderTitle(t);
+    el.classList.add('sleeping');
+    saveSession();
+    return t;
+  }
   mountWebview(t, url);
   activate(id);
   if (focusBar) urlInput.focus();
@@ -274,7 +285,7 @@ $('themeSeg').querySelectorAll('button').forEach((b) => (b.onclick = () => apply
 $('dockSeg').querySelectorAll('button').forEach((b) => (b.onclick = () => applyDock(b.dataset.value)));
 
 /* ---------- Menu ---------- */
-const toggleMenu = (open) => menu.classList.toggle('open', open);
+const toggleMenu = (open) => { menu.classList.toggle('open', open); if (open) { penOpen(false); abOpen(false); } };
 $('menuBtn').onclick = (e) => { e.stopPropagation(); toggleMenu(!menu.classList.contains('open')); };
 menu.addEventListener('click', (e) => e.stopPropagation());
 document.addEventListener('click', () => toggleMenu(false));
@@ -398,6 +409,16 @@ const lum = (h) => {
 };
 const mixHex = (a, b) => '#' + rgb(a).map((v, i) => Math.round((v + rgb(b)[i]) / 2).toString(16).padStart(2, '0')).join('');
 
+let chromeLast = '', chromeT = 0, chromeNext = null;
+function sendChrome(o) {
+  chromeNext = o;
+  if (chromeT) return;
+  chromeT = setTimeout(() => {
+    chromeT = 0;
+    const k = chromeNext.color + chromeNext.symbol + chromeNext.dark;
+    if (k !== chromeLast) { chromeLast = k; window.browsing.setChrome(chromeNext); }
+  }, 80);
+}
 function applyAppearance() {
   const r = document.documentElement, st = r.style;
   ['--bg', '--fg', '--muted', '--border', '--hover', '--press', '--chrome'].forEach((k) => st.removeProperty(k));
@@ -418,7 +439,7 @@ function applyAppearance() {
     dark = prefs.theme !== 'light'; color = dark ? '#000000' : '#ffffff'; symbol = dark ? '#ffffff' : '#000000';
   }
   r.dataset.theme = dark ? 'dark' : 'light';
-  window.browsing.setChrome({ color, symbol, dark });
+  sendChrome({ color, symbol, dark });
 }
 
 function applyPrefs() {
@@ -435,7 +456,7 @@ function applyPrefs() {
   $('preview').style.background = prefs.style === 'gradient' ? 'linear-gradient(135deg, ' + prefs.color + ', ' + prefs.color2 + ')' : prefs.color;
   document.querySelectorAll('.sw[data-pref]').forEach((b) => b.setAttribute('aria-checked', String(!!prefs[b.dataset.pref])));
   window.browsing.setFlags({ adblock: prefs.adblock, saveDl: prefs.saveDl, vpnAuto: prefs.vpnAuto, saveTabs: prefs.saveTabs });
-  renderFonts(); applyFont();
+  renderFonts(); applyFont(); renderPen(); renderAd();
   moveIndicator();
 }
 function applyAll() { applyAppearance(); applyPrefs(); }
@@ -443,8 +464,8 @@ const change = (k, v) => { const go = () => { prefs[k] = v; savePrefs(); if (k =
 
 $('swatches').innerHTML = SWATCHES.map((c) => '<button data-c="' + c + '" style="background:' + c + '" aria-label="Color ' + c + '"></button>').join('');
 $('swatches').onclick = (e) => { const b = e.target.closest('button'); if (b) change('color', b.dataset.c); };
-$('c1').oninput = (e) => change('color', e.target.value);
-$('c2').oninput = (e) => change('color2', e.target.value);
+$('c1').oninput = (e) => liveColor('color', e.target.value);
+$('c2').oninput = (e) => liveColor('color2', e.target.value);
 document.querySelectorAll('.seg[data-pref]').forEach((seg) =>
   seg.querySelectorAll('button').forEach((b) => (b.onclick = () => change(seg.dataset.pref, b.dataset.value))));
 $('sClear').onclick = async () => { await window.browsing.clearData(); reload(); };
@@ -452,16 +473,93 @@ $('sReset').onclick = () => { prefs = { ...DEFAULTS }; savePrefs(); applyDock('t
 
 const sEl = $('settings');
 function openSettings(open) {
-  toggleMenu(false);
+  toggleMenu(false); penOpen(false); abOpen(false);
   sEl.classList.toggle('on', open);
   sEl.setAttribute('aria-hidden', String(!open));
-  if (open) { openHist(false); openSite(false); openPriv(false); $('sClose').focus(); refreshHome(); startMem(); } else stopMem();
+  if (open) { openHist(false); openSite(false); openPriv(false); $('sClose').focus(); refreshHome(); startMem(); refreshAdCount(); } else stopMem();
 }
 $('settingsBtn').onclick = (e) => { e.stopPropagation(); openSettings(true); };
 $('mSettings').onclick = () => openSettings(true);
 $('sClose').onclick = () => openSettings(false);
 sEl.addEventListener('click', (e) => { if (e.target === sEl) openSettings(false); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') openSettings(false); });
+
+/* ---------- Pen: quick theme colour ---------- */
+const penBtn = $('penBtn'), penPop = $('penPop'), penGrid = $('penGrid');
+const PEN = ['#000000', '#ffffff', '#0b3d91', '#5b21b6', '#0f766e', '#15803d', '#b91c1c', '#b45309', '#be185d', '#0e7490', '#4d7c0f', '#334155', '#fde68a', '#bfdbfe'];
+penGrid.innerHTML = PEN.map((c) => '<button data-c="' + c + '" style="background:' + c + '" aria-label="Colour ' + c + '"></button>').join('');
+
+function penOpen(on) {
+  if (on) { toggleMenu(false); openDl(false); openSite(false); abOpen(false); }
+  penPop.classList.toggle('open', on);
+  penBtn.setAttribute('aria-expanded', String(on));
+}
+function paintPreview() {
+  $('preview').style.background = prefs.style === 'gradient' ? 'linear-gradient(135deg, ' + prefs.color + ', ' + prefs.color2 + ')' : prefs.color;
+  if ($('c1').value !== prefs.color) $('c1').value = prefs.color;
+  if ($('c2').value !== prefs.color2) $('c2').value = prefs.color2;
+}
+function renderPen() {
+  const custom = prefs.theme === 'custom';
+  penGrid.querySelectorAll('button').forEach((b) => {
+    const c = b.dataset.c;
+    b.classList.toggle('on', (c === '#000000' && prefs.theme === 'dark') || (c === '#ffffff' && prefs.theme === 'light') || (custom && c === prefs.color.toLowerCase()));
+  });
+  if ($('penC1').value !== prefs.color) $('penC1').value = prefs.color;
+  if ($('penC2').value !== prefs.color2) $('penC2').value = prefs.color2;
+  $('penC2row').hidden = prefs.style !== 'gradient';
+  markSeg($('penStyle'), prefs.style);
+  penBtn.style.setProperty('--pen', custom ? prefs.color : 'transparent');
+  penBtn.classList.toggle('tinted', custom);
+}
+// switch to the custom theme with some changed settings (the circle reveal plays only when you pick a swatch)
+function setCustom(patch, reveal) {
+  const go = () => { Object.assign(prefs, patch); prefs.theme = 'custom'; savePrefs(); applyAll(); };
+  if (reveal && prefs.theme !== 'custom') fx(go); else go();
+}
+// while a colour box is being dragged: repaint once per frame and save when it settles
+let liveRaf = 0, liveT = 0;
+function liveColor(key, v) {
+  if (!isHex(v)) return;
+  if (prefs.theme !== 'custom') return setCustom({ [key]: v }, false);
+  prefs[key] = v;
+  if (!liveRaf) liveRaf = requestAnimationFrame(() => { liveRaf = 0; applyAppearance(); renderPen(); paintPreview(); });
+  clearTimeout(liveT); liveT = setTimeout(() => { savePrefs(); applyPrefs(); }, 300);
+}
+penBtn.onclick = (e) => { e.stopPropagation(); penOpen(!penPop.classList.contains('open')); };
+penPop.addEventListener('click', (e) => e.stopPropagation());
+document.addEventListener('click', () => penOpen(false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') penOpen(false); });
+penGrid.onclick = (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const c = b.dataset.c;
+  if (c === '#000000') applyTheme('dark'); else if (c === '#ffffff') applyTheme('light'); else setCustom({ color: c }, true);
+};
+$('penReset').onclick = () => applyTheme('dark');
+$('penC1').oninput = (e) => liveColor('color', e.target.value);
+$('penC2').oninput = (e) => liveColor('color2', e.target.value);
+$('penStyle').querySelectorAll('button').forEach((b) => (b.onclick = () => setCustom({ style: b.dataset.value }, false)));
+
+/* ---------- Ad blocker button (beside reload) ---------- */
+const adBtn = $('adBtn'), abPop = $('abPop');
+function abOpen(on) {
+  if (on) { toggleMenu(false); penOpen(false); openDl(false); openSite(false); refreshAdCount(); }
+  abPop.classList.toggle('open', on);
+  adBtn.setAttribute('aria-expanded', String(on));
+}
+function refreshAdCount() {
+  window.browsing.adCount().then((n) => { const t = n.toLocaleString(); $('abCount').textContent = t + ' blocked this session'; $('abPopCount').textContent = t; }).catch(() => {});
+}
+function renderAd() {
+  adBtn.classList.toggle('off', !prefs.adblock);
+  adBtn.setAttribute('aria-pressed', String(!!prefs.adblock));
+  adBtn.title = prefs.adblock ? 'Ad blocker is on' : 'Ad blocker is off';
+}
+adBtn.onclick = (e) => { e.stopPropagation(); abOpen(!abPop.classList.contains('open')); };
+abPop.addEventListener('click', (e) => e.stopPropagation());
+document.addEventListener('click', () => abOpen(false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') abOpen(false); });
 
 /* ---------- Theme reveal (circle grows from where you clicked) ---------- */
 let lastPt = { x: innerWidth - 80, y: 24 };
@@ -614,9 +712,8 @@ async function restoreSession() {
   if (prefs.saveTabs) { try { s = await window.browsing.sessionLoad(); } catch {} }
   if (s && Array.isArray(s.closed)) s.closed.forEach((c) => closed.push(c));
   if (prefs.startup === 'restore' && s && Array.isArray(s.urls) && s.urls.length) {
-    s.urls.slice(0, 40).forEach((x) => { const t = newTab(x.u || newtabUrl(), false); if (x.p) setPinned(t, true); });
-    const a = tabs[s.active];
-    if (a) activate(a.id);
+    const list = s.urls.slice(0, 40), ai = Number.isInteger(s.active) && s.active >= 0 && s.active < list.length ? s.active : 0;
+    list.forEach((x, i) => { const t = newTab(x.u || newtabUrl(), false, { instant: true, lazy: i !== ai }); if (x.p) setPinned(t, true); });
   } else newTab();
 }
 
@@ -703,7 +800,7 @@ function renderDl() {
 }
 function openDl(on, auto) {
   clearTimeout(dlAuto);
-  if (on) { toggleMenu(false); openSite(false); }
+  if (on) { toggleMenu(false); openSite(false); penOpen(false); abOpen(false); }
   dlp.classList.toggle('on', on);
   if (on && auto) dlAuto = setTimeout(() => { if (!dlHover) openDl(false); }, 6000);
 }
@@ -895,8 +992,16 @@ document.querySelectorAll('.sw[data-pref]').forEach((b) => (b.onclick = () => ch
 const vpnBtn = $('vpnBtn'), privP = $('privPanel'), vpnSw = $('vpnSw');
 let vpnSt = { state: 'off', message: '', label: '' }, vpnPings = {};
 let vpnInfo = { sel: 'auto', custom: '', servers: [], user: '', hasPass: false };
+const VPN_WIP_MSG = 'The VPN is a work in progress and is not available yet.';
 function renderVpn() {
-  const st = vpnSt.state;
+  const st = vpnSt.state, wip = !!vpnInfo.wip;
+  vpnBtn.classList.toggle('wip', wip); vpnSw.disabled = wip;
+  if (wip) {
+    vpnBtn.classList.remove('on', 'busy', 'err'); vpnBtn.setAttribute('aria-pressed', 'false');
+    vpnBtn.title = 'VPN - work in progress'; vpnSw.setAttribute('aria-checked', 'false');
+    $('vpnTitle').textContent = 'VPN - work in progress'; $('vpnMsg').textContent = 'Not available yet. Your traffic is not routed through a VPN.';
+    return;
+  }
   vpnBtn.classList.toggle('on', st === 'on'); vpnBtn.classList.toggle('busy', st === 'connecting'); vpnBtn.classList.toggle('err', st === 'error');
   vpnBtn.setAttribute('aria-pressed', String(st === 'on'));
   vpnBtn.title = st === 'on' ? 'VPN on - ' + vpnSt.label + ' (click to disconnect, right-click for options)' : st === 'connecting' ? 'VPN connecting...' : st === 'error' ? 'VPN error - ' + vpnSt.message : 'VPN off - click to connect (right-click for options)';
@@ -932,6 +1037,7 @@ function renderServers() {
 function refreshVpn() {
   return window.browsing.vpnGet().then((r) => {
     vpnInfo = r; vpnSt = { state: r.state, message: r.message, label: r.label };
+    privP.classList.toggle('wip', !!r.wip); $('vpnWip').hidden = !r.wip; $('vpnBody').hidden = !!r.wip;
     $('vpnCustom').value = r.custom || ''; $('vpnUser').value = r.user || '';
     $('vpnPass').placeholder = r.hasPass ? 'Password saved (leave blank to keep)' : 'Password';
     renderServers(); renderVpn();
@@ -944,6 +1050,7 @@ async function selectServer(id) {
 }
 const vpnUsable = () => (vpnInfo.sel === 'custom' ? !!vpnInfo.custom : vpnInfo.sel === 'auto' ? (vpnInfo.servers || []).some((s) => !s.id.startsWith('tor-')) : true);
 async function vpnToggle() {
+  if (vpnInfo.wip) { toast(VPN_WIP_MSG); return; }
   if (vpnSt.state === 'connecting') return;
   const on = vpnSt.state !== 'on';
   vpnSt = { ...vpnSt, state: on ? 'connecting' : 'off' }; renderVpn();
@@ -955,11 +1062,10 @@ function openPriv(on) {
   if (!on) return;
   toggleMenu(false); openDl(false); openSite(false); openHist(false); sEl.classList.remove('on'); stopMem();
   refreshVpn();
-  window.browsing.adCount().then((n) => { $('abCount').textContent = n.toLocaleString() + ' blocked this session'; });
   window.browsing.vpnRefresh().then((l) => { vpnInfo.servers = l; renderServers(); return window.browsing.vpnPing(); }).then((p) => { vpnPings = p; renderServers(); }).catch(() => {});
 }
 window.browsing.onVpn((st) => { vpnSt = st; renderVpn(); });
-vpnBtn.onclick = () => { if (vpnSt.state !== 'on' && !vpnUsable()) openPriv(true); else vpnToggle(); };
+vpnBtn.onclick = () => { if (vpnInfo.wip) { toast(VPN_WIP_MSG); return; } if (vpnSt.state !== 'on' && !vpnUsable()) openPriv(true); else vpnToggle(); };
 vpnBtn.oncontextmenu = (e) => { e.preventDefault(); openPriv(true); };
 vpnSw.onclick = vpnToggle;
 $('vpnSave').onclick = async () => {
@@ -1092,11 +1198,15 @@ function sleepTab(t) {
   t.el.classList.remove('audible', 'loading'); t.el.classList.add('sleeping');
 }
 function wakeTab(t) { t.el.classList.remove('sleeping'); mountWebview(t, t.sleepUrl); }
-setInterval(() => {
+setInterval(async () => {
   const mins = +prefs.sleep;
   if (!mins) return;
+  let limit = mins * 60000;
+  if (tabs.length > 4) {                          // under memory pressure, inactive tabs sleep after 2 minutes instead
+    try { if ((await window.browsing.memUsage()) > 1800) limit = Math.min(limit, 120000); } catch {}
+  }
   const now = Date.now();
-  tabs.forEach((t) => { if (t.id !== activeId && t.wv && !t.audible && !t.loading && !t.url.startsWith(INTERNAL) && now - t.lastActive > mins * 60000) sleepTab(t); });
+  tabs.forEach((t) => { if (t.id !== activeId && t.wv && !t.audible && !t.loading && !t.url.startsWith(INTERNAL) && now - t.lastActive > limit) sleepTab(t); });
 }, 30000);
 
 /* ---------- Memory readout ---------- */

@@ -49,6 +49,7 @@ if (location.protocol === 'file:' && /\/src\/internal\.html$/.test(location.path
   contextBridge.exposeInMainWorld('browsingHome', {
     get: () => ipcRenderer.invoke('home-get'),
     saveStickers: (list) => ipcRenderer.invoke('home-save-stickers', list),
+    add: (file) => ipcRenderer.invoke('sticker-add', file),
     remove: (id) => ipcRenderer.invoke('sticker-remove', id),
   });
 }
